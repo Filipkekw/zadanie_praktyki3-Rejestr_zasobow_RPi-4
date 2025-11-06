@@ -15,24 +15,23 @@ class Database:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 category TEXT DEFAULT '',
-                quantity INTEGER NOT NULL DEFAULT 0,
-                serial_number TEXT DEFAULT ''
+                purchase_date TEXT DEFAULT '',
+                serial_number TEXT DEFAULT '',
             );
             """
         )
-        self.conn.commit()
 
     def list_items(self) -> list[dict]:
         cur = self.conn.execute(
-            "SELECT id, name, category, quantity, serial_number FROM inventory ORDER BY id ASC"
+            "SELECT id, name, category, purchase_date, serial_number FROM inventory ORDER BY id ASC"
         )
         rows = cur.fetchall()
         return [dict(r) for r in rows]
 
-    def add_item(self, name: str, category: str, quantity: int, serial_number: str) -> int:
+    def add_item(self, name: str, category: str, purchase_date: str, serial_number: str) -> int:
         cur = self.conn.execute(
-            "INSERT INTO inventory (name, category, quantity, serial_number) VALUES (?, ?, ?, ?)",
-            (name, category, quantity, serial_number),
+            "INSERT INTO inventory (name, category, purchase_date, serial_number) VALUES (?, ?, ?, ?)",
+            (name, category, purchase_date, serial_number),
         )
         self.conn.commit()
         return cur.lastrowid
