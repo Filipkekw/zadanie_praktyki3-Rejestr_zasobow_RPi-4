@@ -16,7 +16,7 @@ class Database:
                 name TEXT NOT NULL,
                 category TEXT DEFAULT '',
                 purchase_date TEXT DEFAULT '',
-                serial_number TEXT DEFAULT '',
+                serial_number TEXT DEFAULT ''
             );
             """
         )
