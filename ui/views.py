@@ -26,16 +26,25 @@ class MainView(ttk.Frame):
         self._build_add_page(self.add_page)
 
     def _build_list_page(self, parent: ttk.Frame):
-
+        # Górny pasek akcji
         actions = ttk.Frame(parent)
         actions.pack(fill="x", padx=10, pady=(10, 6))
-        ttk.Button(actions, text="Dodaj", command=self.show_add).pack(side="left", pady=(6, 0))
-        ttk.Button(actions, text="Usuń zaznaczony", command=self.on_delete).pack(side="left", pady=(6, 0))
-        ttk.Button(actions, text="Odśwież", command=self.refresh).pack(side="left", pady=(6, 0))
 
-        # Tabela + scrollbar w osobnym wrapperze
+        # Zawsze widoczne
+        self.btn_add = ttk.Button(actions, text="Dodaj", command=self.show_add)
+        self.btn_add.pack(side="left")
+
+        # Pojawiają się dopiero po zaznaczeniu wiersza
+        self.btn_delete = ttk.Button(actions, text="Usuń zaznaczony", command=self.on_delete)
+        self.btn_edit = ttk.Button(actions, text="Edytuj", command=self.on_edit)
+
+        # Zawsze widoczny i zawsze ostatni na pasku
+        self.btn_refresh = ttk.Button(actions, text="Odśwież", command=self.refresh)
+        self.btn_refresh.pack(side="left", padx=(6, 0))
+
+        # Tabela + scrollbar
         table_wrap = ttk.Frame(parent)
-        table_wrap.pack(fill="both", expand=True, padx=10, pady=(10, 10))
+        table_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
         columns = ("id", "name", "category", "purchase_date", "serial_number", "description")
         self.tree = ttk.Treeview(table_wrap, columns=columns, show="headings", selectmode="browse")
@@ -59,6 +68,12 @@ class MainView(ttk.Frame):
 
         self.tree.pack(side="left", fill="both", expand=True)
         vsb.pack(side="left", fill="y")
+
+        # Reaguj na zmianę zaznaczenia
+        self.tree.bind("<<TreeviewSelect>>", lambda e: self._update_selection_actions())
+
+        # Upewnij się, że na starcie przyciski selekcyjne są ukryte
+        self._update_selection_actions()
 
     def _build_add_page(self, parent: ttk.Frame):
         header = ttk.Label(parent, text="Dodaj zasób", font=("Arial", 12, "bold"))
@@ -152,9 +167,6 @@ class MainView(ttk.Frame):
 
     def on_delete(self):
         item_id = self._selected_id()
-        if not item_id:
-            messagebox.showinfo("Informacja", "Zaznacz wiersz do usunięcia.")
-            return
 
         if not messagebox.askyesno("Potwierdzenie", "Czy na pewno chcesz usunąć ten wiersz?"):
             return
@@ -166,6 +178,21 @@ class MainView(ttk.Frame):
             return
 
         self.refresh()
+    
+    def _update_selection_actions(self):
+        has_sel = bool(self.tree.selection())
+        if has_sel:
+            # wstaw przed przyciskiem 'Odśwież', żeby kolejność była: Dodaj, Usuń, Edytuj, Odśwież
+            if not self.btn_delete.winfo_ismapped():
+                self.btn_delete.pack(side="left", padx=(6, 0), before=self.btn_refresh)
+                self.btn_edit.pack(side="left", padx=(6, 0), before=self.btn_refresh)
+        else:
+            # ukryj, jeśli były widoczne
+            if self.btn_delete.winfo_ismapped():
+                self.btn_delete.pack_forget()
+                self.btn_edit.pack_forget()
+    def on_edit(self):
+        pass
 
     # --------- zapis na stronie Dodawanie ---------
     def on_add_submit(self):
