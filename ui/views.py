@@ -1,7 +1,69 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from tkcalendar import DateEntry
+from tkcalendar import DateEntry as _BaseDateEntry
 from datetime import date, datetime
+
+class TopmostDateEntry(_BaseDateEntry):
+    def _show_calendar(self):
+        # otwórz jak zwykle
+        super()._show_calendar()
+
+        # spróbuj znaleźć Toplevel kalendarza
+        top = getattr(self, "_top_cal", None)
+        if top is None:
+            cal = getattr(self, "_calendar", None)
+            if cal is not None:
+                try:
+                    top = cal.winfo_toplevel()
+                except Exception:
+                    top = None
+        if not top:
+            return
+
+        def bring_to_front():
+            try: top.transient(self.winfo_toplevel())
+            except Exception: pass
+            try:
+                top.attributes("-topmost", True)
+            except Exception:
+                try: top.wm_attributes("-topmost", True)
+                except Exception: pass
+            try: top.lift()
+            except Exception: pass
+            try: top.focus_force()
+            except Exception: pass
+            try: top.grab_set()
+            except Exception:
+                try: top.grab_set_global()
+                except Exception: pass
+
+            # wygoda: ESC zamyka kalendarz
+            try: top.bind("<Escape>", lambda e: self._hide_calendar(), add="+")
+            except Exception: pass
+
+        # wykonaj po zmapowaniu okna (ważne na X11/RPi)
+        try:
+            top.after(1, bring_to_front)
+        except Exception:
+            bring_to_front()
+
+    def _hide_calendar(self, event=None):
+        # zwolnij grab przed schowaniem
+        top = getattr(self, "_top_cal", None)
+        if top:
+            try: top.grab_release()
+            except Exception: pass
+            try: top.attributes("-topmost", False)
+            except Exception: pass
+        return super()._hide_calendar(event)
+
+    def destroy(self):
+        # awaryjnie zwolnij grab przy niszczeniu
+        top = getattr(self, "_top_cal", None)
+        if top:
+            try: top.grab_release()
+            except Exception: pass
+        super().destroy()
 
 
 class MainView(ttk.Frame):
@@ -109,7 +171,7 @@ class MainView(ttk.Frame):
 
         # Data zakupu
         ttk.Label(form, text="Data zakupu").grid(row=2, column=0, sticky="w")
-        self.add_date_cb = DateEntry(form, date_pattern="yyyy-mm-dd", state="readonly", width=12, firstweekday="monday", showweeknumbers=False)
+        self.add_date_cb = TopmostDateEntry(form, date_pattern="yyyy-mm-dd", state="readonly", width=12, firstweekday="monday", showweeknumbers=False)
         self.add_date_cb.grid(row=2, column=1, padx=6, pady=4, sticky="w")
 
         # Numer seryjny
