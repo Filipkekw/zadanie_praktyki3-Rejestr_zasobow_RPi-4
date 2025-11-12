@@ -42,6 +42,12 @@ class MainView(ttk.Frame):
         # Zawsze widoczny i zawsze ostatni na pasku
         self.btn_refresh = ttk.Button(actions, text="Odśwież", command=self.refresh)
         self.btn_refresh.pack(side="left", padx=(6, 0))
+        
+        ttk.Label(actions, text="Kategoria:").pack(side="left", padx=(12,4))
+        self.filter_category_var = tk.StringVar(value="Wszystkie")
+        self.filter_category_cb = ttk.Combobox(actions, textvariable=self.filter_category_var, state="readonly", width=24)
+        self.filter_category_cb.pack(side="left")
+        self.filter_category_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
 
         # Tabela + scrollbar
         table_wrap = ttk.Frame(parent)
@@ -194,13 +200,28 @@ class MainView(ttk.Frame):
         for iid in self.tree.get_children():
             self.tree.delete(iid)
 
-        # pobierz i wstaw dane
+        # pobierz dane
         try:
             rows = self.db.list_items()
         except Exception as e:
             messagebox.showerror("Błąd", f"Nie udało się pobrać danych: {e}")
             return
 
+        # zasil wartości filtra na podstawie danych
+        self._set_filter_values(rows)
+
+        # zastosuj filtr kategorii
+        selected_cat = self.filter_category_var.get() if hasattr(self, "filter_category_var") else "Wszystkie"
+        if selected_cat != "Wszystkie":
+            rows = [r for r in rows if (r.get("category") or "") == selected_cat]
+        else:
+            # jeśli pokazujemy wszystkie, posortuj po ID rosnąco
+            rows = sorted(
+                rows,
+                key=lambda r: ((r["id"]))
+            )
+
+        # wstaw dane
         for r in rows:
             self.tree.insert(
                 "", "end", iid=str(r["id"]),
@@ -247,6 +268,17 @@ class MainView(ttk.Frame):
         else:
             self.btn_delete.pack_forget()
             self.btn_edit.pack_forget()
+
+    def _set_filter_values(self, rows:list[dict]):
+        cats_from_rows = {(r.get("category") or "").strip() for r in rows}
+        cats_from_rows.discard("")
+        union = set(self.categories) | cats_from_rows
+        values = ["Wszystkie"] + sorted(union, key=str.casefold)
+
+        current = self.filter_category_var.get() if hasattr(self, "filter_category_var") else "Wszystkie"
+        self.filter_category_cb["values"] = values
+        if current not in values:
+            self.filter_category_var.set("Wszystkie")
 
     # --------- zapis na stronie Dodawanie ---------
     def on_form_submit(self):
