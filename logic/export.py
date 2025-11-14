@@ -15,3 +15,20 @@ def export_inventory_to_csv(rows, output_path: Path) -> None:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+def detect_usb_mount() -> Path | None:
+    possible_mounts = [Path("/mnt/usb"), Path("/media/pi")]
+
+    for base in possible_mounts:
+        if not base.exists():
+            continue
+      
+        if base.is_dir() and any(base.iterdir()):
+            return base
+
+        if base.name == "pi":
+            for sub in base.iterdir():
+                if sub.is_dir():
+                    return sub
+
+    return None      

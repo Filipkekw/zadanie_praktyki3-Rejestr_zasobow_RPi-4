@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from datetime import date, datetime
 from tkcalendar import Calendar
-from logic.export import export_inventory_to_csv
+from logic.export import export_inventory_to_csv, detect_usb_mount
 from pathlib import Path
 
 class MainView(ttk.Frame):
@@ -32,21 +32,21 @@ class MainView(ttk.Frame):
     def _build_list_page(self, parent: ttk.Frame):
         # Górny pasek akcji
         actions = ttk.Frame(parent)
-        actions.pack(fill="x", padx=10, pady=(10, 6))
+        actions.pack(fill="x", padx=5, pady=(10, 6))
 
         # Zawsze widoczne
         self.btn_add = ttk.Button(actions, style="Fixed.TButton", text="Dodaj", command=self.show_add, width=6)
         self.btn_add.pack(side="left")
 
         # Pojawiają się dopiero po zaznaczeniu wiersza
-        self.btn_delete = ttk.Button(actions, style="Fixed.TButton", text="Usuń zaznaczony", command=self.on_delete)
+        self.btn_delete = ttk.Button(actions, style="Fixed.TButton", text="Usuń wybrany", command=self.on_delete, width=13)
         self.btn_edit = ttk.Button(actions, style="Fixed.TButton", text="Edytuj", command=self.show_edit, width=8)
 
         # Zawsze widoczny i zawsze ostatni na pasku
         self.btn_refresh = ttk.Button(actions, style="Fixed.TButton", text="Odśwież", command=self.refresh, width=8)
         self.btn_refresh.pack(side="left", padx=(6, 0))
         
-        ttk.Label(actions, text="Kategoria:").pack(side="left", padx=(12,4))
+        ttk.Label(actions, text="Kategoria:").pack(side="left", padx=(4, 4))
         self.filter_category_var = tk.StringVar(value="Wszystkie")
         self.filter_category_cb = ttk.Combobox(actions, textvariable=self.filter_category_var, state="readonly", width=20)
         self.filter_category_cb.pack(side="left")
@@ -56,7 +56,7 @@ class MainView(ttk.Frame):
         self.btn_export.pack(side="left", padx=(6, 0))
 
         search_box = ttk.Frame(actions)
-        search_box.pack(side="right", padx=(6, 0))
+        search_box.pack(side="right", padx=(2, 0))
 
         ttk.Label(search_box, text="Szukaj:").pack(side="left", padx=(0, 4))
         self.search_var = tk.StringVar()
@@ -67,7 +67,7 @@ class MainView(ttk.Frame):
 
         # Tabela + scrollbar
         table_wrap = ttk.Frame(parent)
-        table_wrap.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        table_wrap.pack(fill="both", expand=True, padx=5, pady=(0, 10))
 
         columns = ("id", "name", "category", "purchase_date", "serial_number", "description")
         self.tree = ttk.Treeview(table_wrap, columns=columns, show="headings", selectmode="browse")
@@ -308,7 +308,11 @@ class MainView(ttk.Frame):
 
     def on_export(self):
         try:
-            file_path = filedialog.asksaveasfilename(title="Zapisz jako", defaultextension=".csv", filetypes=[("Pliki CSV", "*.csv"), ("Wszystkie pliki", "*.*")])
+            default_dir = detect_usb_mount()
+
+            initialdir= str(default_dir) if default_dir else None
+
+            file_path = filedialog.asksaveasfilename(title="Zapisz jako", defaultextension=".csv", initialdir=initialdir, filetypes=[("Pliki CSV", "*.csv"), ("Wszystkie pliki", "*.*")])
             if not file_path:
                 return
             rows = self.db.list_items()

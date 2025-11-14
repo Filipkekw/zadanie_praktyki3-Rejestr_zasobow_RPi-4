@@ -17,6 +17,7 @@ def main():
     root = tk.Tk()
     root.title("Rejestr zasobów")
     root.geometry("800x480")
+    root.resizable(False, False)
 
     style = ttk.Style()
     if "clam" in style.theme_names():
