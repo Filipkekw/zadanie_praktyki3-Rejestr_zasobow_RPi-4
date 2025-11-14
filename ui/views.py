@@ -3,167 +3,6 @@ from tkinter import ttk, messagebox
 from datetime import date, datetime
 from tkcalendar import Calendar
 
-class InlineDatePicker(ttk.Frame):
-    def __init__(self, master, date_pattern="yyyy-mm-dd", width=12,
-                 firstweekday="monday", showweeknumbers=False):
-        super().__init__(master)
-        self._date_pattern = date_pattern
-        self._py_pattern = (date_pattern.replace("yyyy", "%Y")
-                                         .replace("mm", "%m")
-                                         .replace("dd", "%d"))
-        self._firstweekday = firstweekday
-        self._showweeknumbers = showweeknumbers
-
-        # pole i przycisk
-        self.var = tk.StringVar()
-        self.entry = ttk.Entry(self, textvariable=self.var, width=width, state="readonly")
-        self.entry.pack(side="left")
-
-        self.entry.bind("<Button-1>", self._on_entry_click)
-
-        # stan popupu
-        self._overlay = None
-        self._popup = None
-        self._cal = None
-        self._cfg_bind_id = None
-
-    # API zgodne z DateEntry
-    def set_date(self, d):
-        if isinstance(d, str):
-            try:
-                d = datetime.strptime(d, self._py_pattern).date()
-            except Exception:
-                d = None
-        if isinstance(d, datetime):
-            d = d.date()
-        if isinstance(d, date):
-            self.var.set(d.strftime(self._py_pattern))
-        else:
-            self.var.set("")
-
-    def get_date(self):
-        s = (self.var.get() or "").strip()
-        if not s:
-            return date.today()
-        try:
-            return datetime.strptime(s, self._py_pattern).date()
-        except Exception:
-            return date.today()
-
-    # wewnętrzne
-    def _on_entry_click(self, event):
-        self.after(0, self._toggle_overlay)
-        return "break"
-
-    def _toggle_overlay(self):
-        if self._overlay and self._overlay.winfo_exists():
-            self._close_overlay()
-        else:
-            self._open_overlay()
-
-    def _open_overlay(self):
-        root = self.winfo_toplevel()
-
-        # 1) utwórz overlay w miejscu pola daty
-        self._overlay = tk.Frame(root, highlightthickness=0, bd=0)
-        root.update_idletasks()
-        ex = self.entry.winfo_rootx() - root.winfo_rootx()
-        ey = self.entry.winfo_rooty() - root.winfo_rooty() + self.entry.winfo_height() + 2
-        self._overlay.place(x=ex, y=ey, width=250, height=220)
-        self._overlay.lift()
-        self._overlay.bind("<Button-1>", self._on_overlay_click, add="+")
-        self._overlay.bind("<Escape>", lambda e: self._close_overlay(), add="+")
-        self._overlay.focus_set()
-
-        # 2) popup wypełnia overlay (bez dodatkowych przesunięć!)
-        self._popup = ttk.Frame(self._overlay, relief="solid", borderwidth=1)
-        self._popup.place(x=0, y=0, relwidth=1, relheight=1)
-
-        # 3) zawartość: kalendarz + przyciski
-        self._cal = Calendar(
-            self._popup,
-            selectmode="day",
-            firstweekday=self._firstweekday,
-            showweeknumbers=self._showweeknumbers
-        )
-        self._cal.pack(padx=6, pady=6)
-        try:
-            self._cal.selection_set(self.get_date())
-        except Exception:
-            pass
-
-        btns = ttk.Frame(self._popup)
-        btns.pack(fill="x", padx=6, pady=(0, 6))
-        ttk.Button(btns, text="Anuluj", command=self._close_overlay).pack(side="right")
-        ttk.Button(btns, text="Wybierz", command=self._accept_date).pack(side="right", padx=(0, 6))
-
-        # 4) dopasuj rozmiar overlay do rzeczywistych wymiarów popupu
-        self._popup.update_idletasks()
-        w = self._popup.winfo_width() or self._popup.winfo_reqwidth()
-        h = self._popup.winfo_height() or self._popup.winfo_reqheight()
-        self._overlay.place_configure(width=w, height=h)
-
-        # 5) bind do repozycjonowania (przy zmianie wielkości/przesunięciu okna)
-        self._cfg_bind_id = root.bind("<Configure>", lambda e: self._reposition_overlay(), add="+")
-        self._reposition_overlay()
-
-    def _reposition_overlay(self):
-        # przesuwamy OVERLAY (nie popup)
-        root = self.winfo_toplevel()
-        if not (self._overlay and self._overlay.winfo_exists()):
-            return
-        try:
-            root.update_idletasks()
-            ex = self.entry.winfo_rootx() - root.winfo_rootx()
-            ey = self.entry.winfo_rooty() - root.winfo_rooty() + self.entry.winfo_height() + 2
-            self._overlay.place_configure(x=ex, y=ey)
-        except Exception:
-            pass
-
-    def _on_overlay_click(self, event):
-        # zamknij jeśli klik poza popupem
-        if self._popup:
-            px, py = self._popup.winfo_rootx(), self._popup.winfo_rooty()
-            pw, ph = self._popup.winfo_width(), self._popup.winfo_height()
-            if not (px <= event.x_root <= px + pw and py <= event.y_root <= py + ph):
-                self._close_overlay()
-        return "break"  # nie przepuszczaj kliknięcia dalej
-
-    def _accept_date(self):
-        try:
-            d = self._cal.selection_get()
-            self.var.set(d.strftime(self._py_pattern))
-        except Exception:
-            pass
-        self._close_overlay()
-
-    def _close_overlay(self):
-        root = self.winfo_toplevel()
-        if getattr(self, "_cfg_bind_id", None):
-            try:
-                root.unbind("<Configure>", self._cfg_bind_id)
-            except Exception:
-                pass
-            self._cfg_bind_id = None
-
-        try:
-            if self._popup and self._popup.winfo_exists():
-                self._popup.place_forget()
-                self._popup.destroy()
-        except Exception:
-            pass
-        try:
-            if self._overlay and self._overlay.winfo_exists():
-                self._overlay.place_forget()
-                self._overlay.destroy()
-        except Exception:
-            pass
-        self._overlay = self._popup = self._cal = None
-
-    def destroy(self):
-        self._close_overlay()
-        super().destroy()
-
 class MainView(ttk.Frame):
     def __init__(self, master, db):
         super().__init__(master)
@@ -194,15 +33,15 @@ class MainView(ttk.Frame):
         actions.pack(fill="x", padx=10, pady=(10, 6))
 
         # Zawsze widoczne
-        self.btn_add = ttk.Button(actions, text="Dodaj", command=self.show_add)
+        self.btn_add = ttk.Button(actions, style="Fixed.TButton", text="Dodaj", command=self.show_add, width=6)
         self.btn_add.pack(side="left")
 
         # Pojawiają się dopiero po zaznaczeniu wiersza
-        self.btn_delete = ttk.Button(actions, text="Usuń zaznaczony", command=self.on_delete)
-        self.btn_edit = ttk.Button(actions, text="Edytuj", command=self.show_edit)
+        self.btn_delete = ttk.Button(actions, style="Fixed.TButton", text="Usuń zaznaczony", command=self.on_delete)
+        self.btn_edit = ttk.Button(actions, style="Fixed.TButton", text="Edytuj", command=self.show_edit, width=8)
 
         # Zawsze widoczny i zawsze ostatni na pasku
-        self.btn_refresh = ttk.Button(actions, text="Odśwież", command=self.refresh)
+        self.btn_refresh = ttk.Button(actions, style="Fixed.TButton", text="Odśwież", command=self.refresh, width=8)
         self.btn_refresh.pack(side="left", padx=(6, 0))
         
         ttk.Label(actions, text="Kategoria:").pack(side="left", padx=(12,4))
@@ -210,6 +49,9 @@ class MainView(ttk.Frame):
         self.filter_category_cb = ttk.Combobox(actions, textvariable=self.filter_category_var, state="readonly", width=20)
         self.filter_category_cb.pack(side="left")
         self.filter_category_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+
+        self.btn_search = ttk.Button(actions, style="Fixed.TButton", text="Szukaj", width=8)
+        self.btn_search.pack(side="left", padx=(6,0))
 
         # Tabela + scrollbar
         table_wrap = ttk.Frame(parent)
@@ -231,6 +73,8 @@ class MainView(ttk.Frame):
         self.tree.column("purchase_date", width=75, anchor="center")
         self.tree.column("serial_number", width=130, anchor="w")
         self.tree.column("description", width=95 , anchor="w")
+
+        self.tree.bind("<B1-Motion>", lambda e: "break")
 
         vsb = ttk.Scrollbar(table_wrap, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
@@ -430,7 +274,10 @@ class MainView(ttk.Frame):
     def on_delete(self):
         item_id = self._selected_id()
 
-        if not messagebox.askyesno("Potwierdzenie", "Czy na pewno chcesz usunąć ten wiersz?"):
+        confirmed = messagebox.askyesno("Potwierdzenie", "Czy na pewno chcesz usunąć ten wiersz?")
+        if not confirmed:
+            self.tree.selection_set()
+            self._update_selection_actions()
             return
 
         try:
@@ -506,3 +353,164 @@ class MainView(ttk.Frame):
 
     def on_add_cancel(self):
         self.show_list()
+
+class InlineDatePicker(ttk.Frame):
+    def __init__(self, master, date_pattern="yyyy-mm-dd", width=12,
+                 firstweekday="monday", showweeknumbers=False):
+        super().__init__(master)
+        self._date_pattern = date_pattern
+        self._py_pattern = (date_pattern.replace("yyyy", "%Y")
+                                         .replace("mm", "%m")
+                                         .replace("dd", "%d"))
+        self._firstweekday = firstweekday
+        self._showweeknumbers = showweeknumbers
+
+        # pole i przycisk
+        self.var = tk.StringVar()
+        self.entry = ttk.Entry(self, textvariable=self.var, width=width, state="readonly")
+        self.entry.pack(side="left")
+
+        self.entry.bind("<Button-1>", self._on_entry_click)
+
+        # stan popupu
+        self._overlay = None
+        self._popup = None
+        self._cal = None
+        self._cfg_bind_id = None
+
+    # API zgodne z DateEntry
+    def set_date(self, d):
+        if isinstance(d, str):
+            try:
+                d = datetime.strptime(d, self._py_pattern).date()
+            except Exception:
+                d = None
+        if isinstance(d, datetime):
+            d = d.date()
+        if isinstance(d, date):
+            self.var.set(d.strftime(self._py_pattern))
+        else:
+            self.var.set("")
+
+    def get_date(self):
+        s = (self.var.get() or "").strip()
+        if not s:
+            return date.today()
+        try:
+            return datetime.strptime(s, self._py_pattern).date()
+        except Exception:
+            return date.today()
+
+    # wewnętrzne
+    def _on_entry_click(self, event):
+        self.after(0, self._toggle_overlay)
+        return "break"
+
+    def _toggle_overlay(self):
+        if self._overlay and self._overlay.winfo_exists():
+            self._close_overlay()
+        else:
+            self._open_overlay()
+
+    def _open_overlay(self):
+        root = self.winfo_toplevel()
+
+        # 1) utwórz overlay w miejscu pola daty
+        self._overlay = tk.Frame(root, highlightthickness=0, bd=0)
+        root.update_idletasks()
+        ex = self.entry.winfo_rootx() - root.winfo_rootx()
+        ey = self.entry.winfo_rooty() - root.winfo_rooty() + self.entry.winfo_height() + 2
+        self._overlay.place(x=ex, y=ey, width=250, height=220)
+        self._overlay.lift()
+        self._overlay.bind("<Button-1>", self._on_overlay_click, add="+")
+        self._overlay.bind("<Escape>", lambda e: self._close_overlay(), add="+")
+        self._overlay.focus_set()
+
+        # 2) popup wypełnia overlay (bez dodatkowych przesunięć!)
+        self._popup = ttk.Frame(self._overlay, relief="solid", borderwidth=1)
+        self._popup.place(x=0, y=0, relwidth=1, relheight=1)
+
+        # 3) zawartość: kalendarz + przyciski
+        self._cal = Calendar(
+            self._popup,
+            selectmode="day",
+            firstweekday=self._firstweekday,
+            showweeknumbers=self._showweeknumbers
+        )
+        self._cal.pack(padx=6, pady=6)
+        try:
+            self._cal.selection_set(self.get_date())
+        except Exception:
+            pass
+
+        btns = ttk.Frame(self._popup)
+        btns.pack(fill="x", padx=6, pady=(0, 6))
+        ttk.Button(btns, text="Anuluj", command=self._close_overlay).pack(side="right")
+        ttk.Button(btns, text="Wybierz", command=self._accept_date).pack(side="right", padx=(0, 6))
+
+        # 4) dopasuj rozmiar overlay do rzeczywistych wymiarów popupu
+        self._popup.update_idletasks()
+        w = self._popup.winfo_width() or self._popup.winfo_reqwidth()
+        h = self._popup.winfo_height() or self._popup.winfo_reqheight()
+        self._overlay.place_configure(width=w, height=h)
+
+        # 5) bind do repozycjonowania (przy zmianie wielkości/przesunięciu okna)
+        self._cfg_bind_id = root.bind("<Configure>", lambda e: self._reposition_overlay(), add="+")
+        self._reposition_overlay()
+
+    def _reposition_overlay(self):
+        # przesuwamy OVERLAY (nie popup)
+        root = self.winfo_toplevel()
+        if not (self._overlay and self._overlay.winfo_exists()):
+            return
+        try:
+            root.update_idletasks()
+            ex = self.entry.winfo_rootx() - root.winfo_rootx()
+            ey = self.entry.winfo_rooty() - root.winfo_rooty() + self.entry.winfo_height() + 2
+            self._overlay.place_configure(x=ex, y=ey)
+        except Exception:
+            pass
+
+    def _on_overlay_click(self, event):
+        # zamknij jeśli klik poza popupem
+        if self._popup:
+            px, py = self._popup.winfo_rootx(), self._popup.winfo_rooty()
+            pw, ph = self._popup.winfo_width(), self._popup.winfo_height()
+            if not (px <= event.x_root <= px + pw and py <= event.y_root <= py + ph):
+                self._close_overlay()
+        return "break"  # nie przepuszczaj kliknięcia dalej
+
+    def _accept_date(self):
+        try:
+            d = self._cal.selection_get()
+            self.var.set(d.strftime(self._py_pattern))
+        except Exception:
+            pass
+        self._close_overlay()
+
+    def _close_overlay(self):
+        root = self.winfo_toplevel()
+        if getattr(self, "_cfg_bind_id", None):
+            try:
+                root.unbind("<Configure>", self._cfg_bind_id)
+            except Exception:
+                pass
+            self._cfg_bind_id = None
+
+        try:
+            if self._popup and self._popup.winfo_exists():
+                self._popup.place_forget()
+                self._popup.destroy()
+        except Exception:
+            pass
+        try:
+            if self._overlay and self._overlay.winfo_exists():
+                self._overlay.place_forget()
+                self._overlay.destroy()
+        except Exception:
+            pass
+        self._overlay = self._popup = self._cal = None
+
+    def destroy(self):
+        self._close_overlay()
+        super().destroy()

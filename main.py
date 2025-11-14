@@ -29,6 +29,9 @@ def main():
                             weight="normal")
     style.configure("Treeview.Heading", font=heading_font)
 
+    style.configure("Fixed.TButton", padding=(4, 4))
+    style.configure("Fixed.TButton", width=15)
+
     MainView(root, db=db).pack(fill="both", expand=True)
 
     def on_close():
