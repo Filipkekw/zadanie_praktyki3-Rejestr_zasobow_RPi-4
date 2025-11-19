@@ -48,7 +48,7 @@ class Database:
             new_id = cur.lastrowid
 
         # powiadom serwer o zmianie
-        self.notify_reload()
+        #self.notify_reload()
         return new_id
 
     def delete_item(self, item_id: int) -> None:
@@ -57,7 +57,7 @@ class Database:
             conn.commit()
 
         # po usunięciu również powiadom serwer
-        self.notify_reload()
+        #self.notify_reload()
 
     def update_item(self, item_id: int, name: str, category: str,
                     purchase_date: str, serial_number: str, description: str) -> None:
@@ -72,7 +72,7 @@ class Database:
             )
             conn.commit()
 
-        self.notify_reload()
+        #self.notify_reload()
 
     # -------------------- powiadamianie serwera --------------------
     def notify_reload(self):
