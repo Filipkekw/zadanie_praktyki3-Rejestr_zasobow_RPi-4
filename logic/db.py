@@ -1,5 +1,6 @@
 import sqlite3
 from pathlib import Path
+import requests
 
 
 class Database:
@@ -35,11 +36,19 @@ class Database:
             (name, category, purchase_date, serial_number, description),
         )
         self.conn.commit()
+        try:
+            requests.post("http://localhost:8000/notify_reload")
+        except Exception as e:
+            print("Nie udało się wysłać sygnału reload:", e)
         return cur.lastrowid
 
     def delete_item(self, item_id: int) -> None:
         self.conn.execute("DELETE FROM inventory WHERE id = ?", (item_id,))
         self.conn.commit()
+        try:
+            requests.post("http://localhost:8000/notify_reload")
+        except Exception as e:
+            print("Nie udało się wysłać sygnału reload:", e)
 
     def update_item(self, item_id: int, name: str, category: str, purchase_date: str, serial_number: str, description:str) -> None:
         self.conn.execute(
@@ -47,6 +56,10 @@ class Database:
             (name, category, purchase_date, serial_number, description, item_id),
         )
         self.conn.commit()
+        try:
+            requests.post("http://localhost:8000/notify_reload")
+        except Exception as e:
+            print("Nie udało się wysłać sygnału reload:", e)
 
     def close(self):
         self.conn.close()

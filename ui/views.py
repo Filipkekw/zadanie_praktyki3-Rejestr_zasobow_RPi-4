@@ -4,6 +4,7 @@ from datetime import date, datetime
 from tkcalendar import Calendar
 from logic.export import export_inventory_to_csv, detect_usb_mount
 from pathlib import Path
+import requests
 
 class MainView(ttk.Frame):
     def __init__(self, master, db):

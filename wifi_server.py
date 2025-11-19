@@ -1,12 +1,21 @@
-#!/usr/bin/env python3
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from pathlib import Path
 from logic.db import Database
 from logic.export import export_inventory_to_csv
-import uvicorn
+import asyncio
+import json
 
 app = FastAPI(title="Inventory WiFi Server")
+
+clients: list[WebSocket] = []
+
+async def broadcast(message: str):
+	for ws in clients:
+		try:
+			await ws.send_text(message)
+		except Exception:
+			clients.remove(ws)
 
 # --- inicjalizacja bazy ---
 data_dir = Path(__file__).resolve().parent / "data"
@@ -29,9 +38,15 @@ def list_items():
     return db.list_items()
 
 @app.post("/items")
-def add_item(item: Item):
-    new_id = db.add_item(**item.dict(exclude={"id"}))
-    return {"status": "ok", "id": new_id}
+async def add_item(item: Item):
+    db.add_item(item.name, item.category, item.purchase_date, item.serial_number, item.description)
+    await broadcast(json.dumps({"event": "reload"}))
+    return {"status": "ok"}
+
+@app.post("/notify_reload")
+async def notify_reload():
+    await broadcast(json.dumps({"event": "reload"}))
+    return {"status": "ok"}
 
 @app.put("/items/{item_id}")
 def update_item(item_id: int, item: Item):
@@ -53,7 +68,20 @@ def export_csv():
 def ping():
     return {"status": "ok", "message": "pong"}
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+	await websocket.accept()
+	clients.append(websocket)
+	print("Polaczono klienta Websocket")
+	
+	try:
+		while True:
+			_ = await websocket.receive_text()
+	except WebSocketDisconnect:
+		print("Klient rozlaczony")
+		clients.remove(websocket)
 
 # --- startowanie serwera ---
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
