@@ -35,10 +35,7 @@ def main():
     MainView(root, db=db).pack(fill="both", expand=True)
 
     def on_close():
-        try:
-            db.close()
-        finally:
-            root.destroy()
+        root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", on_close)
     root.mainloop()
