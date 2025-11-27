@@ -1,7 +1,7 @@
-# Rejestr zasobów - serwer RPi (Tkinter + FastAPI)
+# Rejestr zasobów - serwer RPi (PyQt5 + FastAPI)
 
-Lekka aplikacja do rejestru zasobów na Raspberry Pi 4 (Tkinter + SQLite). 
-Interfejs w Tkinter z bazą danych w pliku ```data/inventory.db``` oraz API HTTP/WebSocket (FastAPI) dla klienta mobilnego.
+Lekka aplikacja do rejestru zasobów na Raspberry Pi 4 (PyQt5 + SQLite). 
+Interfejs w PyQt5 z bazą danych w pliku ```data/inventory.db``` oraz API HTTP/WebSocket (FastAPI) dla klienta mobilnego.
 
 ## Wymagania 
 
@@ -11,19 +11,19 @@ Interfejs w Tkinter z bazą danych w pliku ```data/inventory.db``` oraz API HTTP
 ```bash
 sudo apt update
 sudo apt install python3 python3-pip sqlite3 -y
-pip install fastapi uvicorn websockets requests tkcalendar
+pip install fastapi uvicorn websockets requests
 ```    
-- w przypadku pojawienia się błędu o zablokowaniu instalacji z powodu błędu o treści "externally-managed-environment" trzeba dodać --break-system-packages
+- w przypadku pojawienia się błędu o zablokowaniu instalacji z powodu błędu o treści "externally-managed-environment" trzeba dodać --break-system-packages ale:
     - UWAGA! Użycie tego łączy się z ryzykiem uszkodzenia instalacji pythona lub całego systemu operacyjnego!
     -  Można obejść ten problem, lecz to będzie wymagało użycia wirtualnego środowiska (venv) i aplikacja będzie dostępna tylko w nim.
 
 ## Struktura projektu
 ```
-project_root/
+Rejestr_zasobow_RPi-4-main/
 ├── data/
 │   └── inventory.db        # baza SQLite (tworzona automatycznie)
 ├── ui/
-│   └── views.py            # GUI (Tkinter: formularz + tabela)
+│   └── views.py            # GUI (PyQt5: formularz + tabela)
 ├── logic/
 │   ├── export.py           # obsługa eksportu danych do pliku .csv
 │   ├── ws_client.py        # synchronizacja danych pomiędzy aplikacją tkinter a flutter
@@ -39,7 +39,7 @@ python3 wifi_server.py
 ```
 Serwer będzie dostępny pod adresem: ```http://<IP_RPi>:8000```
 
-2. Uruchom aplikację GUI Tkinter:
+2. Uruchom aplikację GUI PyQt5:
 ```bash
 python3 main.py
 ```

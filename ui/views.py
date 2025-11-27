@@ -1,557 +1,1010 @@
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
-from datetime import date, datetime
-from tkcalendar import Calendar
-from logic.export import export_inventory_to_csv, detect_usb_mount
 from pathlib import Path
-import requests
-from logic.ws_client import WSListener
+from typing import Optional
 
-class MainView(ttk.Frame):
-    def __init__(self, master, db):
-        super().__init__(master)
-        self.db = db
-        self.edit_id = None
-        self.categories = ["Narzędzia", "IT", "Oprogramowanie", "Wyposażenie biurowe", "Transport", "BHP", "Meble", "Inne"]
-        self.sort_by = "id"
-        self.sort_desc = False
-        self._build_pages()
-        self.show_list()
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QFrame, QLabel, QLineEdit, QPushButton, QMessageBox, QComboBox, QStackedWidget, QGridLayout, QCalendarWidget, QRadioButton, QCheckBox, QDialog, QDialogButtonBox, QFileDialog
+from PyQt5.QtCore import Qt, QDate, pyqtSignal
+from PyQt5.QtGui import QTextCharFormat, QBrush, QColor
 
-        self.ws_listener = WSListener(self.refresh)
-        self.ws_listener.start()
+from logic.db import Database
+from logic.export import export_inventory_to_csv, detect_usb_mount
 
-    # --------- budowa stron ---------
-    def _build_pages(self):
-        self.container = ttk.Frame(self)
-        self.container.pack(fill="both", expand=True)
+class ItemCard(QFrame):
+    """Ramka reprezentująca pojedynczy element (jak karta we Flutterze)."""
 
-        # Strona: Lista
-        self.list_page = ttk.Frame(self.container)
-        self._build_list_page(self.list_page)
+    def __init__(
+        self,
+        item: dict,
+        on_clicked,
+        on_double_clicked=None,
+        parent: Optional[QWidget] = None,
+        delete_mode: bool = False,
+        checked: bool = False,
+    ):
+        super().__init__(parent)
+        self.item = item
+        self.on_clicked = on_clicked
+        self.on_double_clicked = on_double_clicked
 
-        # Strona: Dodawanie
-        self.add_page = ttk.Frame(self.container)
-        self._build_add_page(self.add_page)
+        self.setObjectName("itemCard")
 
-    def _build_list_page(self, parent: ttk.Frame):
-        # Górny pasek akcji
-        actions = ttk.Frame(parent)
-        actions.pack(fill="x", padx=5, pady=(10, 6))
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(8, 2, 8, 2)
+        layout.setSpacing(6)
 
-        # Zawsze widoczne
-        self.btn_add = ttk.Button(actions, style="Fixed.TButton", text="Dodaj", command=self.show_add, width=6)
-        self.btn_add.pack(side="left")
+        # checkbox po lewej w trybie usuwania
+        self.checkbox: Optional[QCheckBox] = None
+        if delete_mode:
+            self.checkbox = QCheckBox()
+            self.checkbox.setChecked(checked)
+            self.checkbox.clicked.connect(lambda _: self.on_clicked(self.item, self))
+            layout.addWidget(self.checkbox)
 
-        # Pojawiają się dopiero po zaznaczeniu wiersza
-        self.btn_delete = ttk.Button(actions, style="Fixed.TButton", text="Usuń wybrany", command=self.on_delete, width=13)
-        self.btn_edit = ttk.Button(actions, style="Fixed.TButton", text="Edytuj", command=self.show_edit, width=8)
+        name_label = QLabel(item.get("name", "") or "")
+        name_label.setObjectName("nameLabel")
+        category_label = QLabel(item.get("category", "") or "")
+        date_label = QLabel(item.get("purchase_date", "") or "")
+        sn_label = QLabel(item.get("serial_number", "") or "")
 
-        # Zawsze widoczny i zawsze ostatni na pasku
-        self.btn_refresh = ttk.Button(actions, style="Fixed.TButton", text="Odśwież", command=self.refresh, width=8)
-        self.btn_refresh.pack(side="left", padx=(6, 0))
-        
-        ttk.Label(actions, text="Kategoria:").pack(side="left", padx=(4, 4))
-        self.filter_category_var = tk.StringVar(value="Wszystkie")
-        self.filter_category_cb = ttk.Combobox(actions, textvariable=self.filter_category_var, state="readonly", width=20)
-        self.filter_category_cb.pack(side="left")
-        self.filter_category_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh())
+        desc = item.get("description", "") or ""
+        if len(desc) > 60:
+            desc = desc[:60] + "..."
+        desc_label = QLabel(desc)
+        desc_label.setObjectName("descLabel")
 
-        self.btn_export = ttk.Button(actions, text="Eksport CSV", command=self.on_export)
-        self.btn_export.pack(side="left", padx=(6, 0))
+        name_label.setMinimumWidth(140)
+        desc_label.setMinimumWidth(180)
 
-        search_box = ttk.Frame(actions)
-        search_box.pack(side="right", padx=(2, 0))
+        layout.addWidget(name_label, 2)
+        layout.addWidget(category_label, 1)
+        layout.addWidget(date_label, 1)
+        layout.addWidget(sn_label, 2)
+        layout.addWidget(desc_label, 3)
 
-        ttk.Label(search_box, text="Szukaj:").pack(side="left", padx=(0, 4))
-        self.search_var = tk.StringVar()
-        self.search_entry = ttk.Entry(search_box, textvariable=self.search_var, width=20)
-        self.search_entry.pack(side="left")
+        self.setCursor(Qt.PointingHandCursor)
 
-        self.search_var.trace_add("write", lambda *args: self.refresh())
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.on_clicked:
+            self.on_clicked(self.item, self)
+        super().mousePressEvent(event)
 
-        # Tabela + scrollbar
-        table_wrap = ttk.Frame(parent)
-        table_wrap.pack(fill="both", expand=True, padx=5, pady=(0, 10))
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.LeftButton and self.on_double_clicked:
+            self.on_double_clicked(self.item, self)
+        super().mouseDoubleClickEvent(event)
 
-        columns = ("id", "name", "category", "purchase_date", "serial_number", "description")
-        self.tree = ttk.Treeview(table_wrap, columns=columns, show="headings", selectmode="browse")
+class DateDialog(QCalendarWidget):
+    """Nie używamy już osobnego QDialog – logika daty jest w DateLineEdit."""
 
-        self.tree.heading("id", text="ID")
-        self.tree.heading("name", text="Przedmiot")
-        self.tree.heading("category", text="Kategoria")
-        self.tree.heading("purchase_date", text="Data zakupu", command=self._on_heading_purchase_date)
-        self.tree.heading("serial_number", text="Numer seryjny")
-        self.tree.heading("description", text="Opis")
 
-        self.tree.column("id", width=15, anchor="center")
-        self.tree.column("name", width=170, anchor="w")
-        self.tree.column("category", width=125, anchor="w")
-        self.tree.column("purchase_date", width=75, anchor="center")
-        self.tree.column("serial_number", width=130, anchor="w")
-        self.tree.column("description", width=95 , anchor="w")
+class DateLineEdit(QLineEdit):
+    """
+    Pole tekstowe tylko do wyświetlania wybranej daty.
+    Kliknięcie otwiera kalendarz, użytkownik nie wpisuje nic ręcznie.
+    """
 
-        self.tree.bind("<B1-Motion>", lambda e: "break")
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self._date = QDate.currentDate()
+        self._update_text()
 
-        vsb = ttk.Scrollbar(table_wrap, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
-
-        self.tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="left", fill="y")
-
-        # Reaguj na zmianę zaznaczenia
-        self.tree.bind("<<TreeviewSelect>>", lambda e: self._update_selection_actions())
-        self.tree.bind("<Double-1>", lambda e: self.show_edit())
-        self.tree.bind("<Delete>", lambda e: self.on_delete())
-
-        # Upewnij się, że na starcie przyciski selekcyjne są ukryte
-        self._update_selection_actions()
-
-    def _build_add_page(self, parent: ttk.Frame):
-        self.add_header = ttk.Label(parent, text="Dodaj zasób", font=("Arial", 12, "bold"))
-        self.add_header.pack(anchor="w", padx=10, pady=(10, 5))
-
-        form = ttk.Frame(parent)
-        form.pack(fill="x", padx=10, pady=10)
-
-        self.add_name_var = tk.StringVar()
-        self.add_category_var = tk.StringVar()
-        self.add_serial_number_var = tk.StringVar()
-        self.add_description_var = tk.StringVar()
-
-        # Nazwa
-        ttk.Label(form, text="Przedmiot").grid(row=0, column=0, sticky="w")
-        ttk.Entry(form, textvariable=self.add_name_var, width=30).grid(row=0, column=1, padx=6, pady=4, sticky="w")
-
-        # Kategoria
-        ttk.Label(form, text="Kategoria").grid(row=1, column=0, sticky="w")
-        self.add_category_cb = ttk.Combobox(form, textvariable=self.add_category_var, values=self.categories, state="readonly", width=28)
-        self.add_category_cb.grid(row=1, column=1, padx=6, pady=4, sticky="w")
-
-        # Data zakupu
-        ttk.Label(form, text="Data zakupu").grid(row=2, column=0, sticky="w")
-        self.add_date_cb = InlineDatePicker(form, date_pattern="yyyy-mm-dd", width=12, firstweekday="monday", showweeknumbers=False)
-        self.add_date_cb.grid(row=2, column=1, padx=6, pady=4, sticky="w")
-
-        # Numer seryjny
-        ttk.Label(form, text="Numer seryjny").grid(row=3, column=0, sticky="w")
-        ttk.Entry(form, textvariable=self.add_serial_number_var, width=30).grid(row=3, column=1, padx=6, pady=4, sticky="w")
-
-        # Opis
-        ttk.Label(form, text="Opis").grid(row=4, column=0, sticky="w")
-        ttk.Entry(form, textvariable=self.add_description_var, width=30).grid(row=4, column=1, padx=6, pady=4, sticky="w")
-
-        # Przyciski akcji
-        buttons = ttk.Frame(parent)
-        buttons.pack(fill="x", padx=10, pady=(0, 10))
-        self.btn_save = ttk.Button(buttons, text="Zapisz", command=self.on_form_submit)
-        self.btn_save.pack(side="left")
-        self.btn_cancel = ttk.Button(buttons, text="Anuluj", command=self.on_add_cancel)
-        self.btn_cancel.pack(side="left", padx=6)
-
-        form.grid_columnconfigure(1, weight=1)
-
-    # --------- nawigacja między stronami ---------
-    def _hide_all(self):
-        for child in (self.list_page, self.add_page):
-            child.pack_forget()
-
-    def show_list(self):
-        self._hide_all()
-        self.list_page.pack(fill="both", expand=True)
-        self.refresh()
-        self._update_selection_actions()
-
-    def show_add(self):
-        self._hide_all()
-        self.add_page.pack(fill="both", expand=True)
-        self.edit_id = None
-        self.add_header.config(text="Dodaj zasób")
-        self.btn_save.config(text="Zapisz")
-        # ustaw domyślne wartości
-        self.add_name_var.set("")
-        self.add_category_cb.current(0)
-        self.add_date_cb.set_date(date.today())
-        self.add_serial_number_var.set("")
-        self.add_description_var.set("")
-
-    def show_edit(self):
-        # pobierz ID zaznaczonego wiersza
-        sel = self.tree.selection()
-        if not sel:
-            return
-        try:
-            item_id = int(sel[0])
-        except ValueError:
-            return
-
-        # Spróbuj pobrać dane z tabeli (Treeview zawiera wszystkie potrzebne kolumny)
-        vals = self.tree.item(sel[0], "values")
-        _, name, category, purchase_date, serial_number, description = vals
-
-        # przełącz stan na edycję
-        self.edit_id = item_id
-        self.add_header.config(text=f"Edytuj zasób (ID: {item_id})")
-        self.btn_save.config(text="Zaktualizuj")
-
-        # wypełnij pola formularza
-        self.add_name_var.set(name)
-        # ustaw kategorię (jeśli nie ma w liście, np. custom → ustaw "Inne")
-        if category in self.categories:
-            self.add_category_var.set(category)
+    def _update_text(self):
+        if self._date and self._date.isValid():
+            self.setText(self._date.toString("yyyy-MM-dd"))
         else:
-            self.add_category_var.set("Inne")
+            self.setText("")
 
-        # ustaw datę
-        try:
-            d = datetime.strptime(purchase_date, "%Y-%m-%d").date()
-            self.add_date_cb.set_date(d)
-        except Exception:
-            self.add_date_cb.set_date(date.today())
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Wybierz datę zakupu")
+            dlg.resize(300, 250)
+            layout = QVBoxLayout(dlg)
+            layout.setContentsMargins(8, 8, 8, 8)
+            layout.setSpacing(4)
 
-        self.add_serial_number_var.set(serial_number)
+            cal = QCalendarWidget(dlg)
+            # ciemny motyw kalendarza
+            cal.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
+            fmt = QTextCharFormat()
+            fmt.setForeground(QBrush(Qt.white))
+            fmt.setBackground(QBrush(QColor("#1E1E1E")))
+            cal.setWeekdayTextFormat(Qt.Monday, fmt)
+            cal.setWeekdayTextFormat(Qt.Tuesday, fmt)
+            cal.setWeekdayTextFormat(Qt.Wednesday, fmt)
+            cal.setWeekdayTextFormat(Qt.Thursday, fmt)
+            cal.setWeekdayTextFormat(Qt.Friday, fmt)
+            cal.setWeekdayTextFormat(Qt.Saturday, fmt)
+            cal.setWeekdayTextFormat(Qt.Sunday, fmt)
+            cal.setStyleSheet("""
+                QCalendarWidget {
+                    background-color: #121212;
+                    color: #FFFFFF;
+                    border: 1px solid #333333;
+                }
+                QCalendarWidget QWidget#qt_calendar_navigationbar {
+                    background-color: #1E1E1E;
+                }
+                QCalendarWidget QToolButton {
+                    background-color: #1E1E1E;
+                    color: #FFFFFF;
+                    border: none;
+                }
+                QCalendarWidget QAbstractItemView:enabled {
+                    background-color: #121212;
+                    color: #FFFFFF;
+                    selection-background-color: #1976D2;
+                    selection-color: #FFFFFF;
+                    gridline-color: #333333;
+                }
+                QLabel#status_label {
+                    color: #AAAAAA;
+                    font-size: 11px;
+                } 
+            """)
+            cal.setSelectedDate(self._date or QDate.currentDate())
+            layout.addWidget(cal, 1)
 
-        self.add_description_var.set(description)
-
-        # pokaż stronę formularza
-        self._hide_all()
-        self.add_page.pack(fill="both", expand=True)
-
-    # --------- operacje na liście ---------
-    def refresh(self):
-        # wyczyść tabelę
-        for iid in self.tree.get_children():
-            self.tree.delete(iid)
-
-        # pobierz dane
-        try:
-            rows = self.db.list_items()
-        except Exception as e:
-            messagebox.showerror("Błąd", f"Nie udało się pobrać danych: {e}")
-            return
-
-        # zasil wartości filtra na podstawie danych
-        self._set_filter_values(rows)
-
-        # zastosuj filtr kategorii
-        selected_cat = self.filter_category_var.get() if hasattr(self, "filter_category_var") else "Wszystkie"
-        if selected_cat != "Wszystkie":
-            rows = [r for r in rows if (r.get("category") or "") == selected_cat]
-        else:
-            # jeśli pokazujemy wszystkie, posortuj po ID rosnąco
-            rows = sorted(
-                rows,
-                key=lambda r: ((r["id"]))
+            buttons = QDialogButtonBox(
+                QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg
             )
-        
-        query = (self.search_var.get() if hasattr(self, "search_var") else "").strip().lower()
-        if query:
-            rows = [r for r in rows if 
-                    query in (r.get("name", "") or "").lower()
-                    or query in (r.get("serial_number", "") or "").lower()]
+            buttons.accepted.connect(dlg.accept)
+            buttons.rejected.connect(dlg.reject)
+            layout.addWidget(buttons)
 
-        if self.sort_by == "purchase_date":
-            rows_with_date = []
-            rows_empty = []
-            for r in rows:
-                s = (r.get("purchase_date") or "").strip()
-                try:
-                    d = datetime.strptime(s, "%Y-%m-%d").date()
-                except Exception:
-                    d = None
-                if d is None:
-                    rows_empty.append(r)
-                else:
-                    rows_with_date.append((d, r))
+            if dlg.exec_() == QDialog.Accepted:
+                d = cal.selectedDate()
+                if d.isValid():
+                    self._date = d
+                    self._update_text()
+        super().mousePressEvent(event)
+
+    def setDate(self, date: QDate):
+        if date and date.isValid():
+            self._date = date
+        else:
+            self._date = QDate.currentDate()
+        self._update_text()
+
+    def date(self) -> QDate:
+        return self._date
+
+
+class MainView(QWidget):
+    """Główny widok aplikacji: lista, formularz i strona sortowania/filtrowania."""
             
-            rows_with_date.sort(key=lambda t: (t[0], t[1]["id"]), reverse=self.sort_desc)
-            rows = [r for _, r in rows_with_date] + rows_empty
-        else:
-            rows = sorted(rows, key=lambda r: r["id"])
+    reload_signal = pyqtSignal()
 
-        # wstaw dane
-        for r in rows:
-            self.tree.insert(
-                "", "end", iid=str(r["id"]),
-                values=(r["id"], r["name"], r.get("category", "") or "", r.get("purchase_date", "") or "", r.get("serial_number", "") or "", r.get("description", "") or "")
-            )
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+
+        # --- baza danych ---
+        base_dir = Path(__file__).resolve().parent.parent
+        data_dir = base_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        db_path = data_dir / "inventory.db"
+        self.db = Database(db_path)
+
+        self.items: list[dict] = []
+        self.search_query = ""
+        self.selected_item: Optional[dict] = None
+        self.selected_card: Optional[ItemCard] = None
+
+        self._form_mode = "add"  # 'add' lub 'edit'
+
+        # sortowanie / filtrowanie
+        self.sort_mode: str = "id"  # 'id', 'date_asc', 'date_desc'
+        self.filter_categories: list[str] = []
+        self.all_categories: list[str] = [
+            "Narzędzia",
+            "IT",
+            "Oprogramowanie",
+            "Wyposażenie biurowe",
+            "Transport",
+            "BHP",
+            "Meble",
+            "Inne",
+        ]
+        self.action_mode: str = "normal"
+        self.delete_mode: bool = False
+        self.selected_ids: set[int] = set()
+
+        # elementy strony sortowania (ustawione w _build_sort_page)
+        self.rb_sort_id: Optional[QRadioButton] = None
+        self.rb_sort_date_asc: Optional[QRadioButton] = None
+        self.rb_sort_date_desc: Optional[QRadioButton] = None
+        self.cat_checkboxes: list[QCheckBox] = []
+
+        # ---------- STACKED WIDGET: LISTA / FORMULARZ / SORT/FILTR ----------
+        self.stack = QStackedWidget(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+        root_layout.addWidget(self.stack)
+
+        # Strona 0: lista
+        self.list_page = QWidget()
+        self._build_list_page(self.list_page)
+        self.stack.addWidget(self.list_page)
+
+        # Strona 1: formularz
+        self.form_page = QWidget()
+        self._build_form_page(self.form_page)
+        self.stack.addWidget(self.form_page)
+
+        # Strona 2: sortowanie i filtrowanie
+        self.sort_page = QWidget()
+        self._build_sort_page(self.sort_page)
+        self.stack.addWidget(self.sort_page)
         
+        # Strona 3: podgląd pojedycznego elementu
+        self.preview_page = QWidget()
+        self._build_preview_page(self.preview_page)
+        self.stack.addWidget(self.preview_page)
+
+        self.preview_item: Optional[dict] = None
+
+        # Styl ciemny
+        self.setStyleSheet("""
+            QWidget {
+                background-color: #121212;
+                color: #FFFFFF;
+                font-size: 13px;
+            }
+            QScrollArea {
+                background-color: #121212;
+                border: none;
+            }
+            QFrame#itemCard {
+                background-color: #121212;
+                border-radius: 6px;
+            }
+            QFrame#itemCard[selected="true"] {
+                background-color: #263238;
+            }
+            QFrame#itemCard:hover {
+                background-color: #1A1A1A;
+            }
+            QLabel#descLabel {
+                color: #CCCCCC;
+            }
+            QLabel#headerLabel {
+                font-weight: bold;
+                color: #FFFFFF;
+            }
+            QLineEdit, QComboBox {
+                background-color: #1E1E1E;
+                border: 1px solid #333333;
+                border-radius: 4px;
+                padding: 2px 4px;
+                color: #FFFFFF;
+                font-size: 12px;
+            }
+            QLineEdit:focus, QComboBox:focus {
+                border: 1px solid #1976D2;
+            }
+            QPushButton {
+                background-color: #1976D2;
+                color: white;
+                border-radius: 4px;
+                padding: 2px 6px;
+                border: none;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background-color: #1E88E5;
+            }
+        """)
+
+
+        self.reload_signal.connect(self.load_items)
+
+        self.load_items()
+
+    # ---------- STRONA LISTY ----------
+
+    def _build_list_page(self, page: QWidget):
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(3)
+
+        # Górny pasek: sort/filtr + szukaj
+        top_bar = QWidget()
+        top_bar.setFixedHeight(32)
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(4)
+
+        self.btn_sort_filter = QPushButton("Sortuj / Filtruj")
+        self.btn_sort_filter.setFixedHeight(24)
+        self.btn_sort_filter.clicked.connect(self.on_sort_filter_clicked)
+
+        self.btn_export = QPushButton("Eksport CSV")
+        self.btn_export.setFixedHeight(24)
+        self.btn_export.clicked.connect(self.on_export_clicked)
+
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Szukaj po nazwie / SN / opisie...")
+        self.search_edit.setFixedHeight(24)
+        self.search_edit.textChanged.connect(self.on_search_changed)
+
+        top_layout.addWidget(self.btn_sort_filter)
+        top_layout.addWidget(self.btn_export)
+        top_layout.addStretch(1)
+        top_layout.addWidget(self.search_edit)
+
+        layout.addWidget(top_bar)
+
+        # Nagłówki
+        header = QWidget()
+        header.setFixedHeight(22)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(4, 0, 4, 0)
+        header_layout.setSpacing(6)
+
+        hdr_name = QLabel("Nazwa")
+        hdr_cat = QLabel("Kategoria")
+        hdr_date = QLabel("Data")
+        hdr_sn = QLabel("Nr seryjny")
+        hdr_desc = QLabel("Opis")
+
+        for hdr in (hdr_name, hdr_cat, hdr_date, hdr_sn, hdr_desc):
+            hdr.setObjectName("headerLabel")
+
+        header_layout.addWidget(hdr_name, 2)
+        header_layout.addWidget(hdr_cat, 1)
+        header_layout.addWidget(hdr_date, 1)
+        header_layout.addWidget(hdr_sn, 2)
+        header_layout.addWidget(hdr_desc, 3)
+
+        self.status_label = QLabel("")
+        self.status_label.setFixedHeight(16)
+        layout.addWidget(self.status_label)
+
+        layout.addWidget(header)
+
+        # Lista
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+
+        self.list_container = QWidget()
+        self.list_layout = QVBoxLayout(self.list_container)
+        self.list_layout.setContentsMargins(0, 0, 0, 0)
+        self.list_layout.setSpacing(2)
+
+        self.scroll_area.setWidget(self.list_container)
+        layout.addWidget(self.scroll_area, 1)
+
+        # Dolny pasek
+        bottom_bar = QWidget()
+        bottom_bar.setFixedHeight(36)
+        bottom_layout = QHBoxLayout(bottom_bar)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setSpacing(4)
+
+        self.btn_delete = QPushButton("Usuń")
+        self.btn_delete.setFixedHeight(24)
+        self.btn_delete.clicked.connect(self.on_delete_clicked)
+
+        self.btn_add = QPushButton("Dodaj")
+        self.btn_add.setFixedHeight(24)
+        self.btn_add.clicked.connect(self.on_add_clicked)
+
+        self.btn_edit = QPushButton("Edytuj")
+        self.btn_edit.setFixedHeight(24)
+        self.btn_edit.clicked.connect(self.on_edit_clicked)
+
+        bottom_layout.addWidget(self.btn_delete)
+        bottom_layout.addWidget(self.btn_add)
+        bottom_layout.addWidget(self.btn_edit)
+
+        layout.addWidget(bottom_bar)
+
+    # ---------- STRONA FORMULARZA ----------
+
+    def _build_form_page(self, page: QWidget):
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(4)
+
+        self.form_title = QLabel("Dodaj przedmiot")
+        self.form_title.setObjectName("headerLabel")
+        layout.addWidget(self.form_title)
+
+        self.name_edit = QLineEdit()
+        self.category_cb = QComboBox()
+        self.category_cb.addItems(self.all_categories)
+
+        self.date_edit = DateLineEdit()
+        self.sn_edit = QLineEdit()
+        self.desc_edit = QLineEdit()
+
+        for w in (self.name_edit, self.sn_edit, self.desc_edit, self.category_cb):
+            w.setMinimumHeight(22)
+            w.setMaximumHeight(24)
+
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(4)
+
+        row = 0
+        grid.addWidget(QLabel("Nazwa:"), row, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(self.name_edit, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel("Kategoria:"), row, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(self.category_cb, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel("Data zakupu:"), row, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(self.date_edit, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel("Numer seryjny:"), row, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(self.sn_edit, row, 1)
+        row += 1
+
+        grid.addWidget(QLabel("Opis:"), row, 0, alignment=Qt.AlignRight | Qt.AlignVCenter)
+        grid.addWidget(self.desc_edit, row, 1)
+        row += 1
+
+        form_center = QWidget()
+        form_center.setLayout(grid)
+        layout.addWidget(form_center)
+        layout.addStretch(1)
+
+        # pasek przycisków
+        buttons_bar = QWidget()
+        buttons_layout = QHBoxLayout(buttons_bar)
+        buttons_layout.setContentsMargins(0, 2, 0, 0)
+        buttons_layout.setSpacing(6)
+
+        self.btn_form_cancel = QPushButton("Anuluj")
+        self.btn_form_save = QPushButton("Zapisz")
+
+        for b in (self.btn_form_cancel, self.btn_form_save):
+            b.setMinimumHeight(24)
+            b.setMaximumHeight(26)
+
+        self.btn_form_cancel.clicked.connect(self.on_form_cancel)
+        self.btn_form_save.clicked.connect(self.on_form_save)
+
+        buttons_layout.addWidget(self.btn_form_cancel)
+        buttons_layout.addWidget(self.btn_form_save)
+
+        layout.addWidget(buttons_bar)
+
+    # ---------- STRONA SORTOWANIA / FILTROWANIA ----------
+
+    def _build_sort_page(self, page: QWidget):
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(6)
+
+        title = QLabel("Sortowanie i filtrowanie")
+        title.setObjectName("headerLabel")
+        layout.addWidget(title)
+
+        layout.addWidget(QLabel("Sortowanie:"))
+
+        self.rb_sort_id = QRadioButton("Według ID (domyślnie)")
+        self.rb_sort_date_asc = QRadioButton("Data zakupu: od najstarszych")
+        self.rb_sort_date_desc = QRadioButton("Data zakupu: od najnowszych")
+
+        layout.addWidget(self.rb_sort_id)
+        layout.addWidget(self.rb_sort_date_asc)
+        layout.addWidget(self.rb_sort_date_desc)
+
+        layout.addSpacing(8)
+        layout.addWidget(QLabel("Filtruj po kategoriach:"))
+
+        self.cat_checkboxes = []
+        for cat in self.all_categories:
+            cb = QCheckBox(cat)
+            self.cat_checkboxes.append(cb)
+            layout.addWidget(cb)
+
+        layout.addStretch(1)
+
+        # Dolny pasek przycisków
+        buttons_bar = QWidget()
+        buttons_layout = QHBoxLayout(buttons_bar)
+        buttons_layout.setContentsMargins(0, 2, 0, 0)
+        buttons_layout.setSpacing(6)
+
+        self.btn_sort_cancel = QPushButton("Anuluj")
+        self.btn_sort_apply = QPushButton("Zastosuj")
+
+        self.btn_sort_cancel.clicked.connect(self.on_sort_cancel)
+        self.btn_sort_apply.clicked.connect(self.on_sort_apply)
+
+        buttons_layout.addWidget(self.btn_sort_cancel)
+        buttons_layout.addWidget(self.btn_sort_apply)
+
+        layout.addWidget(buttons_bar)
+
+    # ---------- STRONA PODGLĄDU ----------
+    def _build_preview_page(self, page: QWidget):
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(6)
+
+        title = QLabel("Podgląd przedmiotu")
+        title.setObjectName("headerLabel")
+        layout.addWidget(title)
+
+        # Pola podglądu
+        self.prev_name_label = QLabel("")
+        self.prev_category_label = QLabel("")
+        self.prev_date_label = QLabel("")
+        self.prev_sn_label = QLabel("")
+        self.prev_desc_label = QLabel("")
+
+        def row(label: str, val_label: QLabel) -> QWidget:
+            w = QWidget()
+            l = QHBoxLayout(w)
+            l.setContentsMargins(0, 0, 0, 0)
+            l.setSpacing(6)
+            lbl = QLabel(label)
+            lbl.setMinimumWidth(110)
+            l.addWidget(lbl)
+            l.addWidget(val_label, 1)
+            return w
+
+        layout.addWidget(row("Nazwa:", self.prev_name_label))
+        layout.addWidget(row("Kategoria:", self.prev_category_label))
+        layout.addWidget(row("Data zakupu:", self.prev_date_label))
+        layout.addWidget(row("Numer seryjny:", self.prev_sn_label))
+
+        desc_container = QWidget()
+        desc_layout = QVBoxLayout(desc_container)
+        desc_layout.setContentsMargins(0, 0, 0, 0)
+        desc_layout.setSpacing(2)
+        desc_layout.addWidget(QLabel("Opis:"))
+        desc_layout.addWidget(self.prev_desc_label)
+        layout.addWidget(desc_container)
+
+        layout.addStretch(1)
+
+        # Dolny pasek przycisków: Edytuj / Usuń
+        bottom_bar = QWidget()
+        bottom_layout = QHBoxLayout(bottom_bar)
+        bottom_layout.setContentsMargins(0, 2, 0, 0)
+        bottom_layout.setSpacing(6)
+
+        btn_back = QPushButton("Wróć")
+        btn_edit = QPushButton("Edytuj")
+        btn_delete = QPushButton("Usuń")
+
+        btn_back.clicked.connect(lambda: self.stack.setCurrentWidget(self.list_page))
+        btn_edit.clicked.connect(self.on_preview_edit_clicked)
+        btn_delete.clicked.connect(self.on_preview_delete_clicked)
+
+        bottom_layout.addWidget(btn_back)
+        bottom_layout.addWidget(btn_edit)
+        bottom_layout.addWidget(btn_delete)
+
+        layout.addWidget(bottom_bar)
+
+    # ---------- dane / lista ----------
+
+    def load_items(self):
         try:
-            self.tree.selection_set()
-        except Exception:
-            for lid in self.tree.selection():
-                self.tree.selection_remove(lid)
-        self.tree.focus("")
-        self._update_selection_actions()
-        self._update_sort_indicator()
-
-    def _selected_id(self):
-        sel = self.tree.selection()
-        if not sel:
-            return None
-        try:
-            return int(sel[0])
-        except ValueError:
-            return None
-
-    def on_delete(self):
-        item_id = self._selected_id()
-
-        confirmed = messagebox.askyesno("Potwierdzenie", "Czy na pewno chcesz usunąć ten wiersz?")
-        if not confirmed:
-            self.tree.selection_set()
-            self._update_selection_actions()
-            return
-
-        try:
-            self.db.delete_item(item_id)
+            self.items = self.db.list_items()
         except Exception as e:
-            messagebox.showerror("Błąd", f"Nie udało się usunąć: {e}")
-            return
+            QMessageBox.critical(self, "Błąd bazy", str(e))
+            self.items = []
+        self.refresh_list()
 
-        self.refresh()
+    def refresh_list(self):
+        while self.list_layout.count():
+            item = self.list_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
 
-    def on_export(self):
-        try:
-            default_dir = detect_usb_mount()
+        self.selected_item = None
+        self.selected_card = None
 
-            initialdir= str(default_dir) if default_dir else None
+        items = list(self.items)
 
-            file_path = filedialog.asksaveasfilename(title="Zapisz jako", defaultextension=".csv", initialdir=initialdir, filetypes=[("Pliki CSV", "*.csv"), ("Wszystkie pliki", "*.*")])
-            if not file_path:
-                return
-            rows = self.db.list_items()
+        # wyszukiwanie
+        q = (self.search_query or "").strip().lower()
+        if q:
+            items = [
+                it for it in items
+                if q in (it.get("name", "") or "").lower()
+                or q in (it.get("serial_number", "") or "").lower()
+                or q in (it.get("description", "") or "").lower()
+            ]
 
-            export_inventory_to_csv(rows, Path(file_path))
-            messagebox.showinfo("Eksport zakończony", f"Zapisano do pliku:\n{file_path}")
+        # filtrowanie po kategoriach
+        if self.filter_categories:
+            items = [
+                it for it in items
+                if (it.get("category") or "") in self.filter_categories
+            ]
 
-        except Exception as e:
-            messagebox.showerror("Błąd eksportu", f"Nie udało się wyeksportować danych:\n{e}")
+        # sortowanie
+        if self.sort_mode == "date_asc":
+            items.sort(key=lambda it: it.get("purchase_date", "") or "")
+        elif self.sort_mode == "date_desc":
+            items.sort(key=lambda it: it.get("purchase_date", "") or "", reverse=True)
+        else:  # 'id'
+            items.sort(key=lambda it: it.get("id", 0))
 
-    def _update_selection_actions(self):
-        has_sel = bool(self.tree.selection())
-        if has_sel:
-            # wstaw przed przyciskiem 'Odśwież', żeby kolejność była: Dodaj, Usuń, Edytuj, Odśwież
-            self.btn_delete.pack(side="left", padx=(6,0), before=self.btn_refresh)
-            self.btn_edit.pack(side="left", padx=(6,0), before=self.btn_refresh)
+        if not items:
+            self.list_layout.addWidget(QLabel("Brak danych do wyświetlenia."))
         else:
-            self.btn_delete.pack_forget()
-            self.btn_edit.pack_forget()
+            for it in items:
+                checked = it["id"] in getattr(self, "selected_ids", set())
+                card = ItemCard(
+                    it,
+                    self.on_item_clicked,
+                    self.on_item_double_clicked,
+                    parent=self.list_container,
+                    delete_mode=getattr(self, "delete_mode", False),
+                    checked=checked,
+                )
+                self.list_layout.addWidget(card)
 
-    def _set_filter_values(self, rows:list[dict]):
-        cats_from_rows = {(r.get("category") or "").strip() for r in rows}
-        cats_from_rows.discard("")
-        union = set(self.categories) | cats_from_rows
-        values = ["Wszystkie"] + sorted(union, key=str.casefold)
+        self.list_layout.addStretch(1)
 
-        current = self.filter_category_var.get() if hasattr(self, "filter_category_var") else "Wszystkie"
-        self.filter_category_cb["values"] = values
-        if current not in values:
-            self.filter_category_var.set("Wszystkie")
+    def _current_view_items(self) -> list[dict]:
+        items = list(self.items)
 
-    def _on_heading_purchase_date(self):
-        if self.sort_by != "purchase_date":
-            self.sort_by = "purchase_date"
-            self.sort_desc = False
-        elif not self.sort_desc:
-            self.sort_desc = True
+        # wyszukiwanie
+        q = (self.search_query or "").strip().lower()
+        if q:
+            items = [
+                it for it in items
+                if q in (it.get("name", "") or "").lower()
+                or q in (it.get("serial_number", "") or "").lower()
+                or q in (it.get("description", "") or "").lower()
+            ]
+
+        # filtrowanie po kategoriach
+        if self.filter_categories:
+            items = [
+                it for it in items
+                if (it.get("category") or "") in self.filter_categories
+            ]
+
+        # sortowanie
+        if self.sort_mode == "date_asc":
+            items.sort(key=lambda it: it.get("purchase_date", "") or "")
+        elif self.sort_mode == "date_desc":
+            items.sort(key=lambda it: it.get("purchase_date", "") or "", reverse=True)
+        else:  # 'id'
+            items.sort(key=lambda it: it.get("id", 0))
+
+        return items
+
+    # ---------- obsługa UI: lista ----------
+
+    def on_sort_filter_clicked(self):
+        # Ustaw stan przy wejściu na stronę sortowania
+        if self.sort_mode == "date_asc":
+            self.rb_sort_date_asc.setChecked(True)
+        elif self.sort_mode == "date_desc":
+            self.rb_sort_date_desc.setChecked(True)
         else:
-            self.sort_by = "id"
-            self.sort_desc = False
-        self.refresh()
+            self.rb_sort_id.setChecked(True)
 
-    def _update_sort_indicator(self):
-        if self.sort_by == "purchase_date":
-            arrow = "▼" if self.sort_desc else "▲"
-            self.tree.heading("purchase_date", text=f"Data zakupu {arrow}", command=self._on_heading_purchase_date)
-        else:
-            self.tree.heading("purchase_date", text="Data zakupu", command=self._on_heading_purchase_date)
+        # Ustaw checkboxy kategorii
+        for cb in self.cat_checkboxes:
+            cb.setChecked(cb.text() in self.filter_categories)
 
-    # --------- zapis na stronie Dodawanie ---------
-    def on_form_submit(self):
-        name = self.add_name_var.get().strip()
-        category = self.add_category_var.get().strip()
-        purchase_date = self.add_date_cb.get_date().strftime("%Y-%m-%d")
-        serial_number = self.add_serial_number_var.get().strip()
-        description = self.add_description_var.get().strip()
+        self.stack.setCurrentWidget(self.sort_page)
 
-        if not name:
-            messagebox.showwarning("Błąd", "Nazwa jest wymagana.")
-            return
+    def on_search_changed(self, text: str):
+        self.search_query = text
+        self.refresh_list()
 
-        try:
-            if self.edit_id is None:
-                self.db.add_item(name=name, category=category, purchase_date=purchase_date, serial_number=serial_number, description=description)
+    def on_item_clicked(self, item: dict, card: ItemCard):
+        # TRYB USUWANIA – wielokrotny wybór
+        if self.delete_mode:
+            item_id = item["id"]
+            # przełącz zaznaczenie
+            if item_id in self.selected_ids:
+                self.selected_ids.remove(item_id)
+                card.setProperty("selected", "false")
             else:
-                self.db.update_item(self.edit_id, name=name, category=category, purchase_date=purchase_date, serial_number=serial_number, description=description)
+                self.selected_ids.add(item_id)
+                card.setProperty("selected", "true")
+
+            card.style().unpolish(card)
+            card.style().polish(card)
+
+            # zaktualizuj komunikat o liczbie zaznaczonych
+            if self.selected_ids:
+                self.status_label.setText(
+                    f"Zaznaczono {len(self.selected_ids)} element(y) do usunięcia."
+                )
+            else:
+                self.status_label.setText("Tryb usuwania: zaznacz elementy do usunięcia.")
+            return
+
+        # TRYB EDYCJI (po naciśnięciu przycisku „Edytuj”)
+        if self.action_mode == "edit":
+            self._form_mode = "edit"
+            self.form_title.setText("Edytuj przedmiot")
+            self.selected_item = item
+
+            self.name_edit.setText(item.get("name", "") or "")
+
+            cat = item.get("category", "") or ""
+            idx = self.category_cb.findText(cat)
+            if idx >= 0:
+                self.category_cb.setCurrentIndex(idx)
+
+            date_str = item.get("purchase_date", "") or ""
+            d = QDate.fromString(date_str, "yyyy-MM-dd")
+            if not d.isValid():
+                d = QDate.currentDate()
+            self.date_edit.setDate(d)
+
+            self.sn_edit.setText(item.get("serial_number", "") or "")
+            self.desc_edit.setText(item.get("description", "") or "")
+
+            self.stack.setCurrentWidget(self.form_page)
+            self.action_mode = "normal"
+            self.status_label.setText("")
+            return
+
+        # TRYB NORMALNY – tylko zaznaczenie elementu
+        if self.selected_card is not None:
+            self.selected_card.setProperty("selected", "false")
+            self.selected_card.style().unpolish(self.selected_card)
+            self.selected_card.style().polish(self.selected_card)
+
+        self.selected_item = item
+        self.selected_card = card
+        card.setProperty("selected", "true")
+        card.style().unpolish(card)
+        card.style().polish(card)
+
+    def on_item_double_clicked(self, item: dict, card: ItemCard):
+        """Podwójne kliknięcie: otwarcie strony podglądu."""
+        # w trybie usuwania ignorujemy double-click, bo tam jest logika checkboxów
+        if getattr(self, "delete_mode", False):
+            return
+
+        # zapamiętaj element
+        self.preview_item = item
+
+        # ustaw pola na stronie podglądu
+        self.prev_name_label.setText(item.get("name", "") or "")
+        self.prev_category_label.setText(item.get("category", "") or "")
+        self.prev_date_label.setText(item.get("purchase_date", "") or "")
+        self.prev_sn_label.setText(item.get("serial_number", "") or "")
+        desc = item.get("description", "") or "(brak opisu)"
+        self.prev_desc_label.setText(desc)
+
+        # przełącz na stronę podglądu
+        self.stack.setCurrentWidget(self.preview_page)
+
+    def on_add_clicked(self):
+        if self.delete_mode:
+            # w trybie usuwania: wykonaj kasowanie zaznaczonych
+            if not self.selected_ids:
+                # nic nie wybrano
+                return
+            reply = QMessageBox.question(
+                self,
+                "Potwierdzenie",
+                f"Czy na pewno chcesz usunąć {len(self.selected_ids)} element(y)?",
+                QMessageBox.Yes | QMessageBox.No,
+            )
+            if reply == QMessageBox.Yes:
+                try:
+                    for id_ in list(self.selected_ids):
+                        self.db.delete_item(id_)
+                    self.load_items()
+                except Exception as e:
+                    QMessageBox.critical(self, "Błąd usuwania", str(e))
+            # niezależnie od potwierdzenia wyjdź z trybu usuwania
+            self.delete_mode = False
+            self.selected_ids.clear()
+            self.status_label.setText("")
+            self.btn_delete.setText("Usuń")
+            self.btn_add.setText("Dodaj")
+            self.btn_edit.setEnabled(True)
+            return
+
+        # normalny tryb: otwórz formularz dodawania
+        self.action_mode = "normal"
+        self._form_mode = "add"
+        self.form_title.setText("Dodaj przedmiot")
+        self.name_edit.clear()
+        self.category_cb.setCurrentIndex(0)
+        self.date_edit.setDate(QDate.currentDate())
+        self.sn_edit.clear()
+        self.desc_edit.clear()
+        self.stack.setCurrentWidget(self.form_page)
+
+    def on_edit_clicked(self):
+        # unikamy mieszania z trybem usuwania
+        if self.delete_mode:
+            return
+
+        self.action_mode = "edit"
+        self.status_label.setText("Tryb edycji: kliknij element na liście, który chcesz edytować.")
+
+    def on_delete_clicked(self):
+        # przełącznik trybu usuwania
+        if not self.delete_mode:
+            # włącz tryb usuwania
+            self.delete_mode = True
+            self.selected_ids.clear()
+            self.status_label.setText("Tryb usuwania: zaznacz elementy do usunięcia.")
+            self.btn_delete.setText("Anuluj")
+            self.btn_add.setText("Usuń zaznaczone")
+            self.btn_edit.setEnabled(False)
+            self.refresh_list()
+        else:
+            # wyłącz tryb usuwania (anuluj)
+            self.delete_mode = False
+            self.selected_ids.clear()
+            self.status_label.setText("")
+            self.btn_delete.setText("Usuń")
+            self.btn_add.setText("Dodaj")
+            self.btn_edit.setEnabled(True)
+            self.refresh_list()
+
+    # ---------- obsługa UI: formularz ----------
+
+    def on_form_cancel(self):
+        self.action_mode = "normal"
+        self.status_label.setText("")
+        self.stack.setCurrentWidget(self.list_page)
+
+    def on_form_save(self):
+        self.action_mode = "normal"
+        self.status_label.setText("")
+        
+        data = {
+            "name": self.name_edit.text().strip(),
+            "category": self.category_cb.currentText().strip(),
+            "purchase_date": self.date_edit.date().toString("yyyy-MM-dd"),
+            "serial_number": self.sn_edit.text().strip(),
+            "description": self.desc_edit.text().strip(),
+        }
+
+        if not data["name"]:
+            QMessageBox.warning(self, "Błąd", "Nazwa jest wymagana.")
+            return
+
+        try:
+            if self._form_mode == "add":
+                self.db.add_item(
+                    data["name"],
+                    data["category"],
+                    data["purchase_date"],
+                    data["serial_number"],
+                    data["description"],
+                )
+            else:
+                self.db.update_item(
+                    self.selected_item["id"],
+                    data["name"],
+                    data["category"],
+                    data["purchase_date"],
+                    data["serial_number"],
+                    data["description"],
+                )
+            self.load_items()
+            self.stack.setCurrentWidget(self.list_page)
         except Exception as e:
-            messagebox.showerror("Błąd", f"Nie udało się dodać zasobu: {e}")
+            QMessageBox.critical(self, "Błąd zapisu", str(e))
+
+    # ---------- obsługa UI: strona sortowania ----------
+
+    def on_sort_cancel(self):
+        self.stack.setCurrentWidget(self.list_page)
+
+    def on_sort_apply(self):
+        # ustal tryb sortowania
+        if self.rb_sort_date_asc.isChecked():
+            self.sort_mode = "date_asc"
+        elif self.rb_sort_date_desc.isChecked():
+            self.sort_mode = "date_desc"
+        else:
+            self.sort_mode = "id"
+
+        # zaktualizuj listę wybranych kategorii
+        self.filter_categories = [cb.text() for cb in self.cat_checkboxes if cb.isChecked()]
+
+        self.refresh_list()
+        self.stack.setCurrentWidget(self.list_page)
+
+    # ---------- obsługa UI: strona podglądu ----------
+    def on_preview_edit_clicked(self):
+        """Edytuj aktualnie podglądany element."""
+        if not self.preview_item:
             return
 
-        self.edit_id = None
-        self.show_list()
+        it = self.preview_item
+        self._form_mode = "edit"
+        self.form_title.setText("Edytuj przedmiot")
+        self.selected_item = it
 
-    def on_add_cancel(self):
-        self.show_list()
+        self.name_edit.setText(it.get("name", "") or "")
 
-# Kalendarz na stronie edycji/dodawania
-class InlineDatePicker(ttk.Frame):
-    def __init__(self, master, date_pattern="yyyy-mm-dd", width=12,
-                 firstweekday="monday", showweeknumbers=False):
-        super().__init__(master)
-        self._date_pattern = date_pattern
-        self._py_pattern = (date_pattern.replace("yyyy", "%Y")
-                                         .replace("mm", "%m")
-                                         .replace("dd", "%d"))
-        self._firstweekday = firstweekday
-        self._showweeknumbers = showweeknumbers
+        cat = it.get("category", "") or ""
+        idx = self.category_cb.findText(cat)
+        if idx >= 0:
+            self.category_cb.setCurrentIndex(idx)
 
-        # pole i przycisk
-        self.var = tk.StringVar()
-        self.entry = ttk.Entry(self, textvariable=self.var, width=width, state="readonly")
-        self.entry.pack(side="left")
+        date_str = it.get("purchase_date", "") or ""
+        d = QDate.fromString(date_str, "yyyy-MM-dd")
+        if not d.isValid():
+            d = QDate.currentDate()
+        self.date_edit.setDate(d)
 
-        self.entry.bind("<Button-1>", self._on_entry_click)
+        self.sn_edit.setText(it.get("serial_number", "") or "")
+        self.desc_edit.setText(it.get("description", "") or "")
 
-        # stan popupu
-        self._overlay = None
-        self._popup = None
-        self._cal = None
-        self._cfg_bind_id = None
+        self.stack.setCurrentWidget(self.form_page)
 
-    # API zgodne z DateEntry
-    def set_date(self, d):
-        if isinstance(d, str):
-            try:
-                d = datetime.strptime(d, self._py_pattern).date()
-            except Exception:
-                d = None
-        if isinstance(d, datetime):
-            d = d.date()
-        if isinstance(d, date):
-            self.var.set(d.strftime(self._py_pattern))
-        else:
-            self.var.set("")
+    def on_preview_delete_clicked(self):
+        """Usuń aktualnie podglądany element."""
+        if not self.preview_item:
+            return
 
-    def get_date(self):
-        s = (self.var.get() or "").strip()
-        if not s:
-            return date.today()
-        try:
-            return datetime.strptime(s, self._py_pattern).date()
-        except Exception:
-            return date.today()
-
-    # wewnętrzne
-    def _on_entry_click(self, event):
-        self.after(0, self._toggle_overlay)
-        return "break"
-
-    def _toggle_overlay(self):
-        if self._overlay and self._overlay.winfo_exists():
-            self._close_overlay()
-        else:
-            self._open_overlay()
-
-    def _open_overlay(self):
-        root = self.winfo_toplevel()
-
-        # 1) utwórz overlay w miejscu pola daty
-        self._overlay = tk.Frame(root, highlightthickness=0, bd=0)
-        root.update_idletasks()
-        ex = self.entry.winfo_rootx() - root.winfo_rootx()
-        ey = self.entry.winfo_rooty() - root.winfo_rooty() + self.entry.winfo_height() + 2
-        self._overlay.place(x=ex, y=ey, width=250, height=220)
-        self._overlay.lift()
-        self._overlay.bind("<Button-1>", self._on_overlay_click, add="+")
-        self._overlay.bind("<Escape>", lambda e: self._close_overlay(), add="+")
-        self._overlay.focus_set()
-
-        # 2) popup wypełnia overlay (bez dodatkowych przesunięć!)
-        self._popup = ttk.Frame(self._overlay, relief="solid", borderwidth=1)
-        self._popup.place(x=0, y=0, relwidth=1, relheight=1)
-
-        # 3) zawartość: kalendarz + przyciski
-        self._cal = Calendar(
-            self._popup,
-            selectmode="day",
-            firstweekday=self._firstweekday,
-            showweeknumbers=self._showweeknumbers
+        reply = QMessageBox.question(
+            self,
+            "Potwierdzenie",
+            f"Czy na pewno chcesz usunąć „{self.preview_item.get('name', '')}”?",
+            QMessageBox.Yes | QMessageBox.No,
         )
-        self._cal.pack(padx=6, pady=6)
-        try:
-            self._cal.selection_set(self.get_date())
-        except Exception:
-            pass
-
-        btns = ttk.Frame(self._popup)
-        btns.pack(fill="x", padx=6, pady=(0, 6))
-        ttk.Button(btns, text="Anuluj", command=self._close_overlay).pack(side="right")
-        ttk.Button(btns, text="Wybierz", command=self._accept_date).pack(side="right", padx=(0, 6))
-
-        # 4) dopasuj rozmiar overlay do rzeczywistych wymiarów popupu
-        self._popup.update_idletasks()
-        w = self._popup.winfo_width() or self._popup.winfo_reqwidth()
-        h = self._popup.winfo_height() or self._popup.winfo_reqheight()
-        self._overlay.place_configure(width=w, height=h)
-
-        # 5) bind do repozycjonowania (przy zmianie wielkości/przesunięciu okna)
-        self._cfg_bind_id = root.bind("<Configure>", lambda e: self._reposition_overlay(), add="+")
-        self._reposition_overlay()
-
-    def _reposition_overlay(self):
-        # przesuwamy OVERLAY (nie popup)
-        root = self.winfo_toplevel()
-        if not (self._overlay and self._overlay.winfo_exists()):
-            return
-        try:
-            root.update_idletasks()
-            ex = self.entry.winfo_rootx() - root.winfo_rootx()
-            ey = self.entry.winfo_rooty() - root.winfo_rooty() + self.entry.winfo_height() + 2
-            self._overlay.place_configure(x=ex, y=ey)
-        except Exception:
-            pass
-
-    def _on_overlay_click(self, event):
-        # zamknij jeśli klik poza popupem
-        if self._popup:
-            px, py = self._popup.winfo_rootx(), self._popup.winfo_rooty()
-            pw, ph = self._popup.winfo_width(), self._popup.winfo_height()
-            if not (px <= event.x_root <= px + pw and py <= event.y_root <= py + ph):
-                self._close_overlay()
-        return "break"  # nie przepuszczaj kliknięcia dalej
-
-    def _accept_date(self):
-        try:
-            d = self._cal.selection_get()
-            self.var.set(d.strftime(self._py_pattern))
-        except Exception:
-            pass
-        self._close_overlay()
-
-    def _close_overlay(self):
-        root = self.winfo_toplevel()
-        if getattr(self, "_cfg_bind_id", None):
+        if reply == QMessageBox.Yes:
             try:
-                root.unbind("<Configure>", self._cfg_bind_id)
-            except Exception:
-                pass
-            self._cfg_bind_id = None
+                self.db.delete_item(self.preview_item["id"])
+                self.load_items()
+                self.stack.setCurrentWidget(self.list_page)
+                self.preview_item = None
+            except Exception as e:
+                QMessageBox.critical(self, "Błąd usuwania", str(e))
+
+    # ---------- eksport do CSV ----------
+    def on_export_clicked(self):
+        """Eksport widocznych danych do CSV, z domyślnym katalogiem na pendrivie."""
+
+        # Spróbuj wykryć podłączony pendrive
+        usb_dir = detect_usb_mount()
+        if usb_dir:
+            start_dir = usb_dir
+        else:
+            # jeśli nie ma pendrive'a, zaczynamy z katalogu domowego
+            start_dir = Path.home()
+
+        default_path = start_dir / "export.csv"
+
+        path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Zapisz eksport CSV",
+            str(default_path),
+            "Pliki CSV (*.csv);;Wszystkie pliki (*.*)",
+        )
+        if not path_str:
+            return
 
         try:
-            if self._popup and self._popup.winfo_exists():
-                self._popup.place_forget()
-                self._popup.destroy()
-        except Exception:
-            pass
-        try:
-            if self._overlay and self._overlay.winfo_exists():
-                self._overlay.place_forget()
-                self._overlay.destroy()
-        except Exception:
-            pass
-        self._overlay = self._popup = self._cal = None
+            # UWAGA: tu możesz wybrać, czy eksportujesz CAŁĄ bazę,
+            # czy tylko przefiltrowaną listę:
+            # 1) cała baza:
+            # rows = self.db.list_items()
+            #
+            # 2) tylko to, co jest po filtrach/szukaniu/sortowaniu:
+            rows = self._current_view_items()
 
-    def destroy(self):
-        self._close_overlay()
-        super().destroy()
+            export_inventory_to_csv(rows, Path(path_str))
+            QMessageBox.information(
+                self,
+                "Eksport zakończony",
+                f"Zapisano dane do pliku:\n{path_str}",
+            )
+        except Exception as e:
+            QMessageBox.critical(self, "Błąd eksportu", str(e))

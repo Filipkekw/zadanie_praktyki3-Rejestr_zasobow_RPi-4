@@ -1,44 +1,28 @@
-from pathlib import Path
-import tkinter as tk
-from tkinter import ttk
+import sys
+from PyQt5.QtWidgets import QApplication, QMainWindow
 from ui.views import MainView
-from logic.db import Database
-import tkinter.font as tkfont
+from logic.ws_client import WSListener
 
 
 def main():
-    base_dir = Path(__file__).resolve().parent
-    data_dir = base_dir / "data"
-    data_dir.mkdir(exist_ok=True)
-    db_path = data_dir / "inventory.db"
+    app = QApplication(sys.argv)
 
-    db = Database(db_path)
+    window = QMainWindow()
+    window.setWindowTitle("Rejestr zasobów")
+    window.setFixedSize(800, 430)
 
-    root = tk.Tk()
-    root.title("Rejestr zasobów")
-    root.geometry("800x480")
-    root.resizable(False, False)
+    main_view = MainView(parent=window)
+    window.setCentralWidget(main_view)
 
-    style = ttk.Style()
-    if "clam" in style.theme_names():
-        style.theme_use("clam")
+    window.show()
 
-    default_font = tkfont.nametofont("TkDefaultFont")
-    style.configure("Treeview", font=default_font)
-    heading_font = tkfont.Font(family=default_font.cget("family"),
-                            size=default_font.cget("size"),
-                            weight="normal")
-    style.configure("Treeview.Heading", font=heading_font)
+    def on_reload():
+        main_view.reload_signal.emit()
+    ws = WSListener(on_reload_callback=on_reload, uri="ws://127.0.0.1:8000/ws")
+    ws.start()
+    window.ws_listener = ws
 
-    style.configure("Fixed.TButton", padding=(4, 4), width=15)
-
-    MainView(root, db=db).pack(fill="both", expand=True)
-
-    def on_close():
-        root.destroy()
-
-    root.protocol("WM_DELETE_WINDOW", on_close)
-    root.mainloop()
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
