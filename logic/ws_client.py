@@ -2,10 +2,13 @@ import asyncio
 import threading
 import json
 import websockets
+from .config import SERVER_HOST, SERVER_PORT
 
 class WSListener:
 
-    def __init__(self, on_reload_callback, uri="ws://127.0.0.1:8000/ws"):
+    def __init__(self, on_reload_callback, uri: str | None = None):
+        if uri is None:
+            uri = f"ws://{SERVER_HOST}:{SERVER_PORT}/ws"
         self.uri = uri
         self.on_reload_callback = on_reload_callback  # funkcja np. refresh()
         self.loop = asyncio.new_event_loop()
@@ -13,7 +16,10 @@ class WSListener:
 
     def _run_loop(self):
         asyncio.set_event_loop(self.loop)
-        self.loop.run_until_complete(self._listen())
+        try:
+            self.loop.run_until_complete(self._listen())
+        finally:
+            self.loop.close()
 
     async def _listen(self):
         while True:
@@ -32,3 +38,10 @@ class WSListener:
 
     def start(self):
         self.thread.start()
+
+    def stop(self):
+        self.running = False
+        try:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+        except Exception:
+            pass

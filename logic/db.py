@@ -1,6 +1,7 @@
 import sqlite3
 from pathlib import Path
 import requests
+from .config import SERVER_HOST, SERVER_PORT
 
 class Database:
     def __init__(self, db_path: str | Path):
@@ -67,8 +68,9 @@ class Database:
     # -------- powiadomienie FastAPI --------
     def notify_reload(self):
         """Po każdej zmianie w bazie Tkinter powiadamia serwer FastAPI."""
+        url = f"http://{SERVER_HOST}:{SERVER_PORT}/notify_reload"
         try:
-            requests.post("http://127.0.0.1:8000/notify_reload", timeout=1)
-            print("🔁 notify_reload -> wysłano do serwera FastAPI")
+            requests.post(url, timeout=1)
+            print("notify_reload -> wysłano do serwera FastAPI")
         except Exception as e:
-            print("⚠️ Nie udało się powiadomić serwera:", e)
+            print("Nie udało się powiadomić serwera:", e)

@@ -42,7 +42,9 @@ Serwer będzie dostępny pod adresem: ```http://<IP_RPi>:8000```
 ```bash
 python3 main.py
 ```
-3. Klient Flutter musi być w tej samej sieci Wi-Fi i mieć ustawiony adres IP Raspberry Pi w pięciu miejscach w kodzie w plikach aplikacji klienta (szczegóły w pliku README.md aplikacji klienta).
+3. Aby aplikacja PyQt miała pełne połączenie z serwerem API, trzeba zmienić adres IP i port, na którym działa serwer API w pliku ipconfig.env
+
+4. Klient Flutter musi być w tej samej sieci Wi-Fi i mieć ustawiony adres IP Raspberry Pi we wskazanym miejscu podanym w README.md aplikacji klienta.
 
 ## Funkcje
 - Dodawanie, edycja i usuwanie zasobów (Tkinter + Flutter).
