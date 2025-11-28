@@ -475,6 +475,59 @@ class MainView(QWidget):
 
         layout.addWidget(buttons_bar)
 
+    # ---------- WALIDACJA FORMULARZA ----------
+
+    def _reset_form_field_styles(self):
+        """Przywraca domyślny styl pól formularza (usuwa czerwone obramowania)."""
+        for w in (self.name_edit, self.date_edit, self.sn_edit, self.desc_edit):
+            w.setStyleSheet("")  # dziedziczy styl z rodzica    
+
+    def _validate_form(self) -> bool:
+        """Sprawdza poprawność danych w formularzu. Zwraca True, jeśli OK."""
+        self._reset_form_field_styles()
+        errors = []
+
+        name = self.name_edit.text().strip()
+        category = self.category_cb.currentText().strip()
+        date = self.date_edit.date()
+        sn = self.sn_edit.text().strip()
+        desc = self.desc_edit.text().strip()
+
+        # Nazwa – wymagana
+        if not name:
+            errors.append("Nazwa przedmiotu jest wymagana.")
+            self.name_edit.setStyleSheet("border: 1px solid #e53935;")
+
+        # Nazwa – długość
+        if len(name) > 100:
+            errors.append("Nazwa jest za długa (max 100 znaków).")
+            self.name_edit.setStyleSheet("border: 1px solid #e53935;")
+
+        # Data – nie z przyszłości
+        if date > QDate.currentDate():
+            errors.append("Data zakupu nie może być z przyszłości.")
+            self.date_edit.setStyleSheet("border: 1px solid #e53935;")
+
+        # Numer seryjny – opcjonalny, ale ograniczamy długość
+        if len(sn) > 100:
+            errors.append("Numer seryjny jest za długi (max 100 znaków).")
+            self.sn_edit.setStyleSheet("border: 1px solid #e53935;")
+
+        # Opis – też ograniczamy długość
+        if len(desc) > 255:
+            errors.append("Opis jest za długi (max 255 znaków).")
+            self.desc_edit.setStyleSheet("border: 1px solid #e53935;")
+
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Błędne dane",
+                "\n".join(errors),
+            )
+            return False
+
+        return True
+
     # ---------- STRONA SORTOWANIA / FILTROWANIA ----------
 
     def _build_sort_page(self, page: QWidget):
@@ -861,9 +914,10 @@ class MainView(QWidget):
         self.stack.setCurrentWidget(self.list_page)
 
     def on_form_save(self):
-        self.action_mode = "normal"
-        self.status_label.setText("")
-        
+        # najpierw walidacja
+        if not self._validate_form():
+            return
+
         data = {
             "name": self.name_edit.text().strip(),
             "category": self.category_cb.currentText().strip(),
@@ -871,10 +925,6 @@ class MainView(QWidget):
             "serial_number": self.sn_edit.text().strip(),
             "description": self.desc_edit.text().strip(),
         }
-
-        if not data["name"]:
-            QMessageBox.warning(self, "Błąd", "Nazwa jest wymagana.")
-            return
 
         try:
             if self._form_mode == "add":
