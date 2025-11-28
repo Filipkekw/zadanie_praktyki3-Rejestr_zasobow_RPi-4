@@ -1,5 +1,7 @@
+import os
 import sys
 from PyQt5.QtWidgets import QApplication, QMainWindow
+from PyQt5.QtCore import Qt, QCoreApplication
 from ui.views import MainView
 from logic.ws_client import WSListener
 from logic.config import SERVER_HOST, SERVER_PORT
@@ -19,6 +21,10 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+
     app = QApplication(sys.argv)
 
     window = QMainWindow()
