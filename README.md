@@ -7,15 +7,14 @@ Interfejs w PyQt5 z bazą danych w pliku ```data/inventory.db``` oraz API HTTP/W
 
 - Raspberry Pi 4 z Raspberry Pi OS
 - Python 3.11+
-- zainstalowane pakiety:
+- instalacja wymaganych pakietów:
 ```bash
-sudo apt update
-sudo apt install python3 python3-pip sqlite3 -y
-pip install fastapi uvicorn websockets requests
+python3 -m venv venv
+source venv/bin/activate
+
+pip install --upgrade pip
+pip install -r requirements.txt
 ```    
-- w przypadku pojawienia się błędu o zablokowaniu instalacji z powodu błędu o treści "externally-managed-environment" trzeba dodać --break-system-packages ale:
-    - UWAGA! Użycie tego łączy się z ryzykiem uszkodzenia instalacji pythona lub całego systemu operacyjnego!
-    -  Można obejść ten problem, lecz to będzie wymagało użycia wirtualnego środowiska (venv) i aplikacja będzie dostępna tylko w nim.
 
 ## Struktura projektu
 ```
