@@ -801,7 +801,6 @@ class MainView(QWidget):
                 try:
                     for id_ in list(self.selected_ids):
                         self.db.delete_item(id_)
-                    self.load_items()
                 except Exception as e:
                     QMessageBox.critical(self, "Błąd usuwania", str(e))
             # niezależnie od potwierdzenia wyjdź z trybu usuwania
@@ -811,6 +810,7 @@ class MainView(QWidget):
             self.btn_delete.setText("Usuń")
             self.btn_add.setText("Dodaj")
             self.btn_edit.setEnabled(True)
+            self.load_items()
             return
 
         # normalny tryb: otwórz formularz dodawania

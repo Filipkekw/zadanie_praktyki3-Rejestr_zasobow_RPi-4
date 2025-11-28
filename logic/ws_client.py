@@ -19,15 +19,15 @@ class WSListener:
         while True:
             try:
                 async with websockets.connect(self.uri) as ws:
-                    print("📡 Tkinter połączony z WS serwera.")
+                    print("Aplikacja RPi połączona z WS serwera.")
                     while True:
                         msg = await ws.recv()
                         data = json.loads(msg)
                         if data.get("event") == "reload":
-                            print("🔁 Odebrano RELOAD z serwera.")
+                            print("Odebrano RELOAD z serwera.")
                             self.on_reload_callback()
             except Exception as e:
-                print("⚠️ Błąd WS / zerwane połączenie:", e)
+                print("Błąd WS / zerwane połączenie:", e)
                 await asyncio.sleep(5)  # spróbuj ponownie po 5 s
 
     def start(self):
